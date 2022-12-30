@@ -23,10 +23,35 @@ export const fetchMarkets = async () => {
 };
 
 /**
- * Get all open orders for the current account
+ * Return an orderbook for the provided market. Use a higher step number for low priced currencie.
+ * @param {string} symbol - market symbol
+ * @param {number} limit - maximum number of records to return
+ * @param {number} step - controls aggregation by price; ex. 0.01, 0.1, 1, 10, 100
+ * @returns {object} - asks and bids for the market
+ */
+export const fetchOrderBook = async (symbol, limit = 100, step = 1000) => {
+  const orderBook = await fetchFromAPI(`/v1/orders/depth?symbol=${symbol}&limit=${limit}&step=${step}`);
+  return orderBook;
+};
+
+/**
+ * Get all open orders for a given user
+ * @param {string} username - name of proton user/account to retrieve orders for
  * @returns  {array} - list of all open orders
  */
 export const fetchOpenOrders = async (username) => {
   const openOrders = await fetchFromAPI(`/v1/orders/open?limit=100&offset=0&account=${username}`);
   return openOrders;
+};
+
+/**
+ * Return history of unopened orders for a given user
+ * @param {string} username  - name of proton user/account to retrieve history for
+ * @param {number} limit - maximum number of records to return
+ * @param {number} offset - where to start in the list - used for paging
+ * @returns {array} - returns an array of orders, most recent first
+ */
+export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
+  const orderHistory = await fetchFromAPI(`/v1/orders/history?limit=${limit}&offset=${offset}&account=${username}`);
+  return orderHistory;
 };

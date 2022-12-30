@@ -24,10 +24,12 @@ This is code for a basic trading bot against the Proton DEX, https://protondex.c
 
 ### Markets
 - fetchMarkets - retrieves all markets that exist on the proton dex
+- fetchOrderBook - retrieves order book data for a single market
 
 ### Orders
 - cancelOrder - cancel a single order
-- cancelAllOrders - cancel all orders for a user one by one (not in bulk)
+- cancelAllOrders - cancel all orders for a given user one by one (not in bulk)
 - fetchOpenOrders - retrieve all open orders for a given user
+- fetchOrderHistory - retrieves order history for a given user
 - submitLimitOrder - submit a buy or sell limit order to the dex in postonly mode (ensure it is a maker trade)
 
