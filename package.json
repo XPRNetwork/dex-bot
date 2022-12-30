@@ -1,0 +1,33 @@
+{
+  "name": "dexbot",
+  "version": "1.0.0",
+  "description": "trading bot against proton dex",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "bot": "node index.js",
+    "lint": "eslint . --ext .js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "proton",
+    "dex",
+    "trade",
+    "bot",
+    "order",
+    "crypto"
+  ],
+  "author": "devptrading",
+  "license": "ISC",
+  "dependencies": {
+    "@proton/js": "^27.3.0",
+    "winston": "^3.8.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.7",
+    "@babel/eslint-parser": "^7.19.1",
+    "eslint": "^8.30.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.26.0"
+  }
+}
