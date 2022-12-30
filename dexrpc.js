@@ -7,8 +7,6 @@ const ENDPOINTS = [
   'https://proton.eoscafeblock.com',
 ];
 
-// To export private key from your wallet, follow:
-// https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
 const config = {
   username: 'user1',
   privateKey: 'PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu',

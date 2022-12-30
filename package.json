@@ -17,15 +17,13 @@
     "order",
     "crypto"
   ],
-  "author": "devptrading",
-  "license": "ISC",
+  "author": "Maura Wilder",
+  "license": "MIT",
   "dependencies": {
     "@proton/js": "^27.3.0",
     "winston": "^3.8.2"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.7",
-    "@babel/eslint-parser": "^7.19.1",
     "eslint": "^8.30.0",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.26.0"
