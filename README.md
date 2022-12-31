@@ -11,7 +11,7 @@ This is code for a basic trading bot against the Proton DEX, https://protondex.c
 ### run the code
 1. `npm install`
 1. update config in dexrpc.js to use your own username and private key
-1. edit the main method in index.js to include the action you want to try
+1. edit the main method in index.js to use the market you would like to trade in
 1. `npm run bot`
 
 ### coding references
@@ -20,41 +20,41 @@ This is code for a basic trading bot against the Proton DEX, https://protondex.c
 - actions available on the DEX contract: https://www.docs.protondex.com/developers-dex/actions
 - general documentation on interacting with proton contracts: https://docs.protonchain.com/built-with-proton.html#sdks
 
-## Current capabilities
+## Actions available in this bot code base
 
 ### Markets
-- fetchMarkets - retrieves all markets that exist on the proton dex
+- **fetchMarkets** - retrieves all markets that exist on the proton dex
 ```
     const response = await fetchMarkets();
     logger.info(response);
 ```
-- fetchOrderBook - retrieves order book data for a single market
+- **fetchOrderBook** - retrieves order book data for a single market
 ```
     const response = await fetchOrderBook('XBTC_XUSDC', 100, 0.01);
     logger.info(response);
 ```
 
 ### Orders
-- cancelOrder - cancel a single order
+- **cancelOrder** - cancel a single order
 ```
     const orderId = 966550;
     cancelOrder(orderId);
 ```
-- cancelAllOrders - cancel all orders for a given user one by one (not in bulk)
+- **cancelAllOrders** - cancel all orders for a given user one by one (not in bulk)
 ```
     cancelAllOrders();
 ```
-- fetchOpenOrders - retrieve all open orders for a given user
+- **fetchOpenOrders** - retrieve all open orders for a given user
 ```
     const response = await fetchOpenOrders(username);
     logger.info(response);
 ```
-- fetchOrderHistory - retrieves order history for a given user
+- **fetchOrderHistory** - retrieves order history for a given user
 ```
     const response = await fetchOrderHistory('metallicus', 20, 0);
     logger.info(response);
 ```
-- submitLimitOrder - submit a buy or sell limit order to the dex in postonly mode (ensure it is a maker trade)
+- **submitLimitOrder** - submit a buy or sell limit order to the dex in postonly mode (ensure it is a maker trade)
 ```
     // place an order to sell XPR into USDC
     const quantity = 570;
@@ -63,7 +63,7 @@ This is code for a basic trading bot against the Proton DEX, https://protondex.c
 ```
 
 ### Accounts
-- fetchBalances - retrieves all balances for a given user
+- **fetchBalances** - retrieves all balances for a given user
 ```    
     const response = await fetchBalances('metallicus');
     logger.info(response);

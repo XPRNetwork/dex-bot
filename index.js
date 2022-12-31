@@ -1,13 +1,7 @@
 import winston from 'winston';
 import {
-  fetchBalances, fetchMarkets, fetchOpenOrders, fetchOrderBook, fetchOrderHistory,
-} from './dexapi.js';
-import {
-  cancelOrder, cancelAllOrders, initialize, submitLimitOrder, ORDERSIDES,
+  cancelAllOrders, initialize, submitLimitOrder, ORDERSIDES,
 } from './dexrpc.js';
-
-// SET THIS VALUE
-const username = 'user1';
 
 /**
  * This is the main market maker trading strategy.
@@ -19,7 +13,7 @@ const username = 'user1';
 const trade = async (market, logger) => {
   logger.info('Executing trade()');
 
-  // == place an order to sell XPR into USDC
+  // == place an order to sell
   const quantity = 500;
   const price = 0.002025;
   await submitLimitOrder(market, ORDERSIDES.SELL, quantity, price);
