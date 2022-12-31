@@ -5,7 +5,7 @@ const lightApiRoot = 'https://lightapi.eosamsterdam.net/api';
 /**
  * Generic GET request to the DEX API
  * @param {string} path - path for data, ex. /v1/markets/all
- * @returns {object} - json data
+ * @returns {Promise<object>} - json data
  */
 const fetchFromAPI = async (path) => {
   const url = `${dexApiRoot}${path}`;
@@ -17,7 +17,7 @@ const fetchFromAPI = async (path) => {
 /**
  * Generic GET request to the Proton light API
  * @param {string} path - path for data, ex. fetchFromLightAPI
- * @returns {object} - jsoon data
+ * @returns {Promise<object>} - jsoon data
  */
 const fetchFromLightAPI = async (path) => {
   const url = `${lightApiRoot}${path}`;
@@ -28,7 +28,7 @@ const fetchFromLightAPI = async (path) => {
 
 /**
  * Get all available markets
- * @returns {array} - list of all markets available on ProtonDEX
+ * @returns {Promise<array>} - list of all markets available on ProtonDEX
  */
 export const fetchMarkets = async () => {
   const marketData = await fetchFromAPI('/v1/markets/all');
@@ -40,7 +40,7 @@ export const fetchMarkets = async () => {
  * @param {string} symbol - market symbol
  * @param {number} limit - maximum number of records to return
  * @param {number} step - controls aggregation by price; ex. 0.01, 0.1, 1, 10, 100
- * @returns {object} - asks and bids for the market
+ * @returns {Promise<object>} - asks and bids for the market
  */
 export const fetchOrderBook = async (symbol, limit = 100, step = 1000) => {
   const orderBook = await fetchFromAPI(`/v1/orders/depth?symbol=${symbol}&limit=${limit}&step=${step}`);
@@ -50,7 +50,7 @@ export const fetchOrderBook = async (symbol, limit = 100, step = 1000) => {
 /**
  * Get all open orders for a given user
  * @param {string} username - name of proton user/account to retrieve orders for
- * @returns  {array} - list of all open orders
+ * @returns  {Promise<array>} - list of all open orders
  */
 export const fetchOpenOrders = async (username) => {
   const openOrders = await fetchFromAPI(`/v1/orders/open?limit=100&offset=0&account=${username}`);
@@ -62,7 +62,7 @@ export const fetchOpenOrders = async (username) => {
  * @param {string} username - name of proton user/account to retrieve history for
  * @param {number} limit - maximum number of records to return
  * @param {number} offset - where to start in the list - used for paging
- * @returns {array} - returns an array of orders, most recent first
+ * @returns {Promise<array>} - returns an array of orders, most recent first
  */
 export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
   const orderHistory = await fetchFromAPI(`/v1/orders/history?limit=${limit}&offset=${offset}&account=${username}`);
@@ -72,7 +72,7 @@ export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
 /**
  *
  * @param {string} username - name of proton user/account to retrieve history for
- * @returns {array} - array of balances,
+ * @returns {Promise<array>} - array of balances,
  * ex. {"decimals":"4","contract":"eosio.token","amount":"123.4567","currency":"XPR"}
  */
 export const fetchBalances = async (username) => {

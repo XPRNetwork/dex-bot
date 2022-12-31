@@ -1,3 +1,4 @@
+import winston from 'winston';
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import { fetchMarkets, fetchOpenOrders } from './dexapi.js';
 
@@ -26,10 +27,13 @@ const api = new Api({
   signatureProvider: new JsSignatureProvider([config.privateKey]),
 });
 
-const transact = (actions) => api.transact({ actions }, {
-  blocksBehind: 300,
-  expireSeconds: 3000,
-});
+const transact = async (actions) => {
+  const response = await api.transact({ actions }, {
+    blocksBehind: 300,
+    expireSeconds: 3000,
+  });
+  return response;
+};
 
 const markets = { byId: {}, bySymbol: {} };
 
@@ -50,6 +54,11 @@ export const FILLTYPES = {
   POST_ONLY: 2,
 };
 
+const transport = new winston.transports.Console();
+const logger = winston.createLogger({
+  transports: [transport],
+});
+
 /**
  * Initialize the application.
  * Sets global variable `markets`
@@ -66,6 +75,7 @@ export const initialize = async () => {
 /**
  * Given a list of on-chain actions, apply authorization and send
  * @param {array} actions - array of actions to send to the chain
+ * @returns {Promise<object>} - response object from the api.transact()
  */
 const transactOnChain = async (actions) => {
   // apply authorization to each action
@@ -74,11 +84,8 @@ const transactOnChain = async (actions) => {
     authorization,
   }));
 
-  // send all actions to chain
-  const main = async () => {
-    await transact(authorizedActions);
-  };
-  main();
+  const response = await transact(authorizedActions);
+  return response;
 };
 
 /**
@@ -88,8 +95,9 @@ const transactOnChain = async (actions) => {
  * @param {number} quantity - how many to buy/sell
  * @param {number} price - price to pay
  * @returns nothing - use fetchOpenOrders to retrieve details of successful but unfilled orders
- */
-export const submitLimitOrder = (symbol, orderSide, quantity, price = undefined) => {
+ * @returns {Promise<object>} - response object from the api.transact()
+*/
+export const submitLimitOrder = async (symbol, orderSide, quantity, price = undefined) => {
   const market = markets.bySymbol[symbol];
   const askToken = market.ask_token;
   const bidToken = market.bid_token;
@@ -140,14 +148,17 @@ export const submitLimitOrder = (symbol, orderSide, quantity, price = undefined)
     },
   ];
 
-  transactOnChain(actions);
+  const response = await transactOnChain(actions);
+  return response;
 };
 
 /**
  * Cancel a single order
  * @param {number} orderId - if of order to cancel
+ * @returns {Promise<object>} - response object from the api.transact()
  */
-export const cancelOrder = (orderId) => {
+export const cancelOrder = async (orderId) => {
+  logger.info(`Canceling order with id: ${orderId}`);
   const actions = [
     {
       account: 'dex',
@@ -159,15 +170,17 @@ export const cancelOrder = (orderId) => {
     },
   ];
 
-  transactOnChain(actions);
+  const response = await transactOnChain(actions);
+  return response;
 };
 
 /**
  * Cancel all orders for the current account
- */
+* @returns {Promise<void>} - nothing
+*/
 export const cancelAllOrders = async () => {
   const orders = await fetchOpenOrders(config.username);
-  orders.forEach((order) => {
-    cancelOrder(order.order_id);
-  });
+  await Promise.all(orders.map(async (order) => {
+    await cancelOrder(order.order_id);
+  }));
 };
