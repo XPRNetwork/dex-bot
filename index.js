@@ -1,5 +1,7 @@
 import winston from 'winston';
-import { fetchMarkets, fetchOpenOrders, fetchOrderBook, fetchOrderHistory } from './dexapi.js';
+import {
+  fetchBalances, fetchMarkets, fetchOpenOrders, fetchOrderBook, fetchOrderHistory,
+} from './dexapi.js';
 import {
   cancelOrder, cancelAllOrders, initialize, submitLimitOrder, ORDERSIDES,
 } from './dexrpc.js';
@@ -40,7 +42,10 @@ const main = async () => {
     // logger.info(response);
 
     // == fetchOrderHistory
-    const response = await fetchOrderHistory('squdgy', 20, 0);
+    // const response = await fetchOrderHistory('metallicus', 20, 0);
+    // logger.info(response);
+
+    const response = await fetchBalances('metallicus');
     logger.info(response);
   } catch (error) {
     logger.error(error);

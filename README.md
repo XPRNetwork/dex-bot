@@ -33,3 +33,6 @@ This is code for a basic trading bot against the Proton DEX, https://protondex.c
 - fetchOrderHistory - retrieves order history for a given user
 - submitLimitOrder - submit a buy or sell limit order to the dex in postonly mode (ensure it is a maker trade)
 
+### Accounts
+- fetchBalances - retrieves all balances for a given user
+

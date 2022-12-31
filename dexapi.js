@@ -1,5 +1,6 @@
 // Contains methods for interacting with the off-chain DEX API
 const dexApiRoot = 'https://metal-dexdb.global.binfra.one/dex';
+const lightApiRoot = 'https://lightapi.eosamsterdam.net/api';
 
 /**
  * Generic GET request to the DEX API
@@ -11,6 +12,18 @@ const fetchFromAPI = async (path) => {
   const response = await fetch(url);
   const responseJson = await response.json();
   return responseJson.data;
+};
+
+/**
+ * Generic GET request to the Proton light API
+ * @param {string} path - path for data, ex. fetchFromLightAPI
+ * @returns {object} - jsoon data
+ */
+const fetchFromLightAPI = async (path) => {
+  const url = `${lightApiRoot}${path}`;
+  const response = await fetch(url);
+  const responseJson = await response.json();
+  return responseJson;
 };
 
 /**
@@ -46,7 +59,7 @@ export const fetchOpenOrders = async (username) => {
 
 /**
  * Return history of unopened orders for a given user
- * @param {string} username  - name of proton user/account to retrieve history for
+ * @param {string} username - name of proton user/account to retrieve history for
  * @param {number} limit - maximum number of records to return
  * @param {number} offset - where to start in the list - used for paging
  * @returns {array} - returns an array of orders, most recent first
@@ -54,4 +67,15 @@ export const fetchOpenOrders = async (username) => {
 export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
   const orderHistory = await fetchFromAPI(`/v1/orders/history?limit=${limit}&offset=${offset}&account=${username}`);
   return orderHistory;
+};
+
+/**
+ *
+ * @param {string} username - name of proton user/account to retrieve history for
+ * @returns {array} - array of balances,
+ * ex. {"decimals":"4","contract":"eosio.token","amount":"123.4567","currency":"XPR"}
+ */
+export const fetchBalances = async (username) => {
+  const response = await fetchFromLightAPI(`/balances/proton/${username}`);
+  return response.balances;
 };
