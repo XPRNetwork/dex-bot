@@ -1,7 +1,18 @@
 {
   "bot" : {
-      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu",
       "symbol": "XPR_XUSDC",
-      "username": "squdgy"
+      "username": "user1",
+      "tradeIntervalMS": "50000"
+  },
+  "rpc": {
+    "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu",
+    "endpoints" : [
+      "https://proton.greymass.com",
+      "https://proton.eoscafeblock.com"
+    ]
+  },
+  "api": {
+    "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
+    "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
   }
 }

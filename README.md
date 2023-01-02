@@ -20,6 +20,28 @@ This is code for a basic trading bot against the Proton DEX, https://protondex.c
 - actions available on the DEX contract: https://www.docs.protondex.com/developers-dex/actions
 - general documentation on interacting with proton contracts: https://docs.protonchain.com/built-with-proton.html#sdks
 
+## config params
+```
+{
+  "bot" : {
+      "symbol": "XPR_XUSDC", // market to trade in
+      "username": "user1", // username of trader
+      "tradeIntervalMS": "50000" // how often to attempt trade
+  },
+  "rpc": {
+    "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu", // private key of trader
+    "endpoints" : [ // endpoints for RPC API
+      "https://proton.greymass.com",
+      "https://proton.eoscafeblock.com"
+    ]
+  },
+  "api": {
+    "apiRoot": "https://metal-dexdb.global.binfra.one/dex", // api for readonly dex api
+    "lightApiRoot": "https://lightapi.eosamsterdam.net/api" // api for readonly proton api
+  }
+}
+```
+
 ## Actions available in this bot code base
 
 ### Markets

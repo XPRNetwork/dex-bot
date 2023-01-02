@@ -1,17 +1,16 @@
 // a basic market maker strategy
 import config from 'config';
-import { fetchOpenOrders, fetchOrderBook } from '../dexapi.js';
-import { getMarketBySymbol } from '../dexrpc.js';
+import * as dexapi from '../dexapi.js';
 
 // Trading config
 const botConfig = config.get('bot');
 
 const getMarketDetails = async () => {
-  const market = getMarketBySymbol(botConfig.symbol);
-  const allOrders = await fetchOpenOrders(botConfig.username);
+  const market = dexapi.getMarketBySymbol(botConfig.symbol);
+  const allOrders = await dexapi.fetchOpenOrders(botConfig.username);
   const orders = allOrders.filter((order) => order.market_id === market.market_id);
   // TODO: compute params for order book based on precision of symbol
-  const orderBook = await fetchOrderBook(botConfig.symbol, 100, 1000000);
+  const orderBook = await dexapi.fetchOrderBook(botConfig.symbol, 100, 1000000);
 
   const tradeStatus = {
     time: new Date().toISOString(),

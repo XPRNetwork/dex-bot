@@ -1,29 +1,18 @@
 // Contains methods for interacting with the off-chain DEX API
-const dexApiRoot = 'https://metal-dexdb.global.binfra.one/dex';
-const lightApiRoot = 'https://lightapi.eosamsterdam.net/api';
+import config from 'config';
+
+const apiConfig = config.get('api');
 
 /**
- * Generic GET request to the DEX API
+ * Generic GET request to one of the APIs
+ * @param {string} root - root url for the API, ex. https://metal-dexdb.global.binfra.one/dex
  * @param {string} path - path for data, ex. /v1/markets/all
  * @returns {Promise<object>} - json data
  */
-const fetchFromAPI = async (path) => {
-  const url = `${dexApiRoot}${path}`;
-  const response = await fetch(url);
+const fetchFromAPI = async (root, path) => {
+  const response = await fetch(`${root}${path}`);
   const responseJson = await response.json();
   return responseJson.data;
-};
-
-/**
- * Generic GET request to the Proton light API
- * @param {string} path - path for data, ex. fetchFromLightAPI
- * @returns {Promise<object>} - jsoon data
- */
-const fetchFromLightAPI = async (path) => {
-  const url = `${lightApiRoot}${path}`;
-  const response = await fetch(url);
-  const responseJson = await response.json();
-  return responseJson;
 };
 
 /**
@@ -31,19 +20,19 @@ const fetchFromLightAPI = async (path) => {
  * @returns {Promise<array>} - list of all markets available on ProtonDEX
  */
 export const fetchMarkets = async () => {
-  const marketData = await fetchFromAPI('/v1/markets/all');
+  const marketData = await fetchFromAPI(apiConfig.apiRoot, '/v1/markets/all');
   return marketData;
 };
 
 /**
- * Return an orderbook for the provided market. Use a higher step number for low priced currencie.
+ * Return an orderbook for the provided market. Use a higher step number for low priced currencies
  * @param {string} symbol - market symbol
  * @param {number} limit - maximum number of records to return
  * @param {number} step - controls aggregation by price; ex. 0.01, 0.1, 1, 10, 100
  * @returns {Promise<object>} - asks and bids for the market
  */
 export const fetchOrderBook = async (symbol, limit = 100, step = 1000) => {
-  const orderBook = await fetchFromAPI(`/v1/orders/depth?symbol=${symbol}&limit=${limit}&step=${step}`);
+  const orderBook = await fetchFromAPI(apiConfig.apiRoot, `/v1/orders/depth?symbol=${symbol}&limit=${limit}&step=${step}`);
   return orderBook;
 };
 
@@ -53,7 +42,7 @@ export const fetchOrderBook = async (symbol, limit = 100, step = 1000) => {
  * @returns  {Promise<array>} - list of all open orders
  */
 export const fetchOpenOrders = async (username) => {
-  const openOrders = await fetchFromAPI(`/v1/orders/open?limit=100&offset=0&account=${username}`);
+  const openOrders = await fetchFromAPI(apiConfig.apiRoot, `/v1/orders/open?limit=100&offset=0&account=${username}`);
   return openOrders;
 };
 
@@ -65,7 +54,7 @@ export const fetchOpenOrders = async (username) => {
  * @returns {Promise<array>} - returns an array of orders, most recent first
  */
 export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
-  const orderHistory = await fetchFromAPI(`/v1/orders/history?limit=${limit}&offset=${offset}&account=${username}`);
+  const orderHistory = await fetchFromAPI(apiConfig.apiRoot, `/v1/orders/history?limit=${limit}&offset=${offset}&account=${username}`);
   return orderHistory;
 };
 
@@ -76,6 +65,23 @@ export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
  * ex. {"decimals":"4","contract":"eosio.token","amount":"123.4567","currency":"XPR"}
  */
 export const fetchBalances = async (username) => {
-  const response = await fetchFromLightAPI(`/balances/proton/${username}`);
+  const response = await fetchFromAPI(apiConfig.lightApiRoot, `/balances/proton/${username}`);
   return response.balances;
+};
+
+const markets = { byId: {}, bySymbol: {} };
+export const getMarketById = (id) => markets.byId[id];
+export const getMarketBySymbol = (symbol) => markets.bySymbol[symbol];
+
+/**
+ * Initialize. Gets and stores all dex markets
+ * @param {winston.logger} loggerArg
+ */
+export const initialize = async () => {
+  // load all markets for later use
+  const allMarkets = await fetchMarkets();
+  allMarkets.forEach((market) => {
+    markets.byId[market.market_id] = market;
+    markets.bySymbol[market.symbol] = market;
+  });
 };

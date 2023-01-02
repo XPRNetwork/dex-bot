@@ -1,15 +1,21 @@
+// Interactions with the DEX contract, via RPC
 import config from 'config';
-import winston from 'winston';
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
-import { fetchMarkets, fetchOpenOrders } from './dexapi.js';
+import * as dexapi from './dexapi.js';
 
-// For testnet use https://protontestnet.greymass.com
-const ENDPOINTS = [
-  'https://proton.greymass.com',
-  'https://proton.eoscafeblock.com',
-];
+let logger = () => {};
+
+/**
+ * Set a logger for the api
+ * @param {object} arg - a winston.logger instance
+ */
+export const setLogger = (arg) => {
+  logger = arg;
+};
 
 const botConfig = config.get('bot');
+const rpcConfig = config.get('rpc');
+const ENDPOINTS = rpcConfig.endpoints;
 
 // Authorization
 const authorization = [{
@@ -22,20 +28,27 @@ const rpc = new JsonRpc(ENDPOINTS);
 
 const api = new Api({
   rpc,
-  signatureProvider: new JsSignatureProvider([botConfig.privateKey]),
+  signatureProvider: new JsSignatureProvider([rpcConfig.privateKey]),
 });
 
+/**
+ * Send the transactions to the API
+ * @param {array} actions - list of actions
+ * @returns {object}
+ */
 const transact = async (actions) => {
-  const response = await api.transact({ actions }, {
+  // apply authorization to each action
+  const actionsWithAuth = actions.map((action) => ({
+    ...action,
+    authorization,
+  }));
+
+  const response = await api.transact({ actionsWithAuth }, {
     blocksBehind: 300,
     expireSeconds: 3000,
   });
   return response;
 };
-
-const markets = { byId: {}, bySymbol: {} };
-export const getMarketById = (id) => markets.byId[id];
-export const getMarketBySymbol = (symbol) => markets.bySymbol[symbol];
 
 export const ORDERSIDES = {
   BUY: 1,
@@ -54,40 +67,6 @@ export const FILLTYPES = {
   POST_ONLY: 2,
 };
 
-const logger = winston.createLogger({
-  format: winston.format.prettyPrint(),
-  transports: [new winston.transports.Console()],
-});
-
-/**
- * Initialize the application.
- * Sets global variable `markets`
- */
-export const initialize = async () => {
-  // load all markets for later use
-  const allMarkets = await fetchMarkets();
-  allMarkets.forEach((market) => {
-    markets.byId[market.market_id] = market;
-    markets.bySymbol[market.symbol] = market;
-  });
-};
-
-/**
- * Given a list of on-chain actions, apply authorization and send
- * @param {array} actions - array of actions to send to the chain
- * @returns {Promise<object>} - response object from the api.transact()
- */
-const transactOnChain = async (actions) => {
-  // apply authorization to each action
-  const authorizedActions = actions.map((action) => ({
-    ...action,
-    authorization,
-  }));
-
-  const response = await transact(authorizedActions);
-  return response;
-};
-
 /**
  * Place a buy or sell limit order
  * @param {string} symbol - market symbol, ex. 'XPR_XMD'
@@ -98,7 +77,7 @@ const transactOnChain = async (actions) => {
  * @returns {Promise<object>} - response object from the api.transact()
 */
 export const submitLimitOrder = async (symbol, orderSide, quantity, price = undefined) => {
-  const market = markets.bySymbol[symbol];
+  const market = dexapi.getMarketBySymbol(symbol);
   const askToken = market.ask_token;
   const bidToken = market.bid_token;
   const quantityText = `${quantity.toFixed(bidToken.precision)} ${bidToken.code}`;
@@ -148,7 +127,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
     },
   ];
 
-  const response = await transactOnChain(actions);
+  const response = await transact(actions);
   return response;
 };
 
@@ -170,7 +149,7 @@ export const cancelOrder = async (orderId) => {
     },
   ];
 
-  const response = await transactOnChain(actions);
+  const response = await transact(actions);
   return response;
 };
 
@@ -179,8 +158,9 @@ export const cancelOrder = async (orderId) => {
 * @returns {Promise<void>} - nothing
 */
 export const cancelAllOrders = async () => {
-  const orders = await fetchOpenOrders(botConfig.username);
+  const orders = await dexapi.fetchOpenOrders(botConfig.username);
   await Promise.all(orders.map(async (order) => {
+    // TODO: handle errors (race condition)
     await cancelOrder(order.order_id);
   }));
 };
