@@ -1,3 +1,4 @@
+import config from 'config';
 import winston from 'winston';
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import { fetchMarkets, fetchOpenOrders } from './dexapi.js';
@@ -8,14 +9,11 @@ const ENDPOINTS = [
   'https://proton.eoscafeblock.com',
 ];
 
-const config = {
-  username: 'user1',
-  privateKey: 'PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu',
-};
+const botConfig = config.get('bot');
 
 // Authorization
 const authorization = [{
-  actor: config.username,
+  actor: botConfig.username,
   permission: 'active',
 }];
 
@@ -24,7 +22,7 @@ const rpc = new JsonRpc(ENDPOINTS);
 
 const api = new Api({
   rpc,
-  signatureProvider: new JsSignatureProvider([config.privateKey]),
+  signatureProvider: new JsSignatureProvider([botConfig.privateKey]),
 });
 
 const transact = async (actions) => {
@@ -111,7 +109,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
       account: bidToken.contract,
       name: 'transfer',
       data: {
-        from: config.username,
+        from: botConfig.username,
         to: 'dex',
         quantity: quantityText,
         memo: '',
@@ -122,7 +120,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
       name: 'placeorder',
       data: {
         market_id: market.market_id,
-        account: config.username,
+        account: botConfig.username,
         order_type: ORDERTYPES.LIMIT,
         order_side: orderSide,
         quantity: quantityNormalized,
@@ -166,7 +164,7 @@ export const cancelOrder = async (orderId) => {
       account: 'dex',
       name: 'cancelorder',
       data: {
-        account: config.username,
+        account: botConfig.username,
         order_id: orderId,
       },
     },
@@ -181,7 +179,7 @@ export const cancelOrder = async (orderId) => {
 * @returns {Promise<void>} - nothing
 */
 export const cancelAllOrders = async () => {
-  const orders = await fetchOpenOrders(config.username);
+  const orders = await fetchOpenOrders(botConfig.username);
   await Promise.all(orders.map(async (order) => {
     await cancelOrder(order.order_id);
   }));

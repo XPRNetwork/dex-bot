@@ -5,11 +5,10 @@ import makeMarkets from './strategies/marketmaker.js';
 /**
  * This is the main market maker trading strategy.
  * This is where logic will go to determine price, quantity etc.
- * @param {string} market - Which market to make a market in, ex. XPR_XUSDC
  * @param {winston} logger - logger for logging info and errors
  * @returns {Promise<void>} - doesn't return anything
  */
-const trade = async (market, logger) => {
+const trade = async (logger) => {
   logger.info('Executing trade()');
 
   await makeMarkets(logger);
@@ -30,8 +29,7 @@ const main = async () => {
     // attempt a trade every n milliseconds
     const tradeInterval = setInterval(async () => {
       try {
-        const market = 'XPR_XUSDC';
-        await trade(market, logger);
+        await trade(logger);
       } catch (error) {
         logger.error(error.message);
       }
