@@ -1,7 +1,6 @@
 import winston from 'winston';
-import {
-  cancelAllOrders, initialize, submitLimitOrder, ORDERSIDES,
-} from './dexrpc.js';
+import { initialize } from './dexrpc.js';
+import makeMarkets from './strategies/marketmaker.js';
 
 /**
  * This is the main market maker trading strategy.
@@ -13,12 +12,7 @@ import {
 const trade = async (market, logger) => {
   logger.info('Executing trade()');
 
-  // == place an order to sell
-  const quantity = 500;
-  const price = 0.002025;
-  await submitLimitOrder(market, ORDERSIDES.SELL, quantity, price);
-
-  // TODO: trading strategy
+  await makeMarkets(logger);
 };
 
 /**
@@ -26,9 +20,9 @@ const trade = async (market, logger) => {
  * This sets up the logic for the application, the looping, timing, and what to do on exit.
  */
 const main = async () => {
-  const transport = new winston.transports.Console();
   const logger = winston.createLogger({
-    transports: [transport],
+    format: winston.format.prettyPrint(),
+    transports: [new winston.transports.Console()],
   });
 
   await initialize();
@@ -39,7 +33,7 @@ const main = async () => {
         const market = 'XPR_XUSDC';
         await trade(market, logger);
       } catch (error) {
-        logger.error(error);
+        logger.error(error.message);
       }
     }, 5000);
 
@@ -48,11 +42,11 @@ const main = async () => {
     process.on('SIGINT', async () => {
       clearInterval(tradeInterval); // stop attempting new trades
       logger.info('Canceling all open orders and shutting down');
-      await cancelAllOrders();
+      // await cancelAllOrders();
       process.exit();
     });
   } catch (error) {
-    logger.error(error);
+    logger.error(error.message);
   }
 };
 

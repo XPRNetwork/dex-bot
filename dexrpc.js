@@ -36,6 +36,8 @@ const transact = async (actions) => {
 };
 
 const markets = { byId: {}, bySymbol: {} };
+export const getMarketById = (id) => markets.byId[id];
+export const getMarketBySymbol = (symbol) => markets.bySymbol[symbol];
 
 export const ORDERSIDES = {
   BUY: 1,
@@ -54,9 +56,9 @@ export const FILLTYPES = {
   POST_ONLY: 2,
 };
 
-const transport = new winston.transports.Console();
 const logger = winston.createLogger({
-  transports: [transport],
+  format: winston.format.prettyPrint(),
+  transports: [new winston.transports.Console()],
 });
 
 /**
