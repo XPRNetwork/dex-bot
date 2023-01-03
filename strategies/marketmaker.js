@@ -1,6 +1,7 @@
 // a basic market maker strategy
 import config from 'config';
 import * as dexapi from '../dexapi.js';
+import getLogger from '../utils.js';
 
 // Trading config
 const botConfig = config.get('bot');
@@ -25,9 +26,9 @@ const getMarketDetails = async () => {
 
 /**
  * Market Making Trading Strategy
- * @param {winston.logger} logger
  */
-const makeMarkets = async (logger) => {
+const makeMarkets = async () => {
+  const logger = getLogger();
   logger.info('Executing market maker trades');
 
   const marketDetails = await getMarketDetails();

@@ -75,7 +75,6 @@ export const getMarketBySymbol = (symbol) => markets.bySymbol[symbol];
 
 /**
  * Initialize. Gets and stores all dex markets
- * @param {winston.logger} loggerArg
  */
 export const initialize = async () => {
   // load all markets for later use

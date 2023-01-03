@@ -2,16 +2,9 @@
 import config from 'config';
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import * as dexapi from './dexapi.js';
+import getLogger from './utils.js';
 
-let logger = () => {};
-
-/**
- * Set a logger for the api
- * @param {object} arg - a winston.logger instance
- */
-export const setLogger = (arg) => {
-  logger = arg;
-};
+const logger = getLogger();
 
 const botConfig = config.get('bot');
 const rpcConfig = config.get('rpc');
