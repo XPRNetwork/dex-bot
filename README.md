@@ -20,19 +20,13 @@ export PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRgg
 1. edit config/default.json to use the market you would like to trade in (symbol value)
 1. `npm run bot`
 
-### coding references
-- basics for a simple limit order placement, including signing: https://www.docs.protondex.com/developers-dex/submit-dex-order
-- instructions on finding your private key: https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
-- actions available on the DEX contract: https://www.docs.protondex.com/developers-dex/actions
-- general documentation on interacting with proton contracts: https://docs.protonchain.com/built-with-proton.html#sdks
-
 ## config params
 config/default.json has other config values you can change
 ```
 {
   "bot" : {
     "api": {
-        
+
       // api for readonly dex api
       "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
 
@@ -87,7 +81,7 @@ config/default.json has other config values you can change
     const orderId = 966550;
     cancelOrder(orderId);
 ```
-- **cancelAllOrders** - cancel all orders for a given user one by one (not in bulk)
+- **cancelAllOrders** - cancel all orders for a given user
 ```
     cancelAllOrders();
 ```
@@ -115,3 +109,10 @@ config/default.json has other config values you can change
     const response = await fetchBalances('metallicus');
     logger.info(response);
 ```
+
+### coding references
+- basics for a simple limit order placement, including signing: https://www.docs.protondex.com/developers-dex/submit-dex-order
+- instructions on finding your private key: https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
+- actions available on the DEX contract: https://www.docs.protondex.com/developers-dex/actions
+- general documentation on interacting with proton contracts: https://docs.protonchain.com/built-with-proton.html#sdks
+

@@ -1,6 +1,5 @@
 // a basic market maker strategy
 import * as dexapi from '../dexapi.js';
-import { cancelOrder } from '../dexrpc.js';
 import { getConfig, getLogger } from '../utils.js';
 
 // Trading config
@@ -32,7 +31,6 @@ const trade = async () => {
   logger.info(`Executing ${config.symbol} market maker trades on account ${config.username}`);
 
   try {
-    // await cancelOrder(1046821);
     const marketDetails = await getMarketDetails();
     logger.info(marketDetails);
   } catch (error) {
