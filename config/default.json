@@ -1,18 +1,18 @@
 {
   "bot" : {
-      "symbol": "XPR_XUSDC",
-      "username": "user1",
-      "tradeIntervalMS": "50000"
-  },
-  "rpc": {
-    "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu",
-    "endpoints" : [
-      "https://proton.greymass.com",
-      "https://proton.eoscafeblock.com"
-    ]
-  },
-  "api": {
-    "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
-    "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+    "api": {
+      "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
+      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+    },
+    "rpc": {
+      "endpoints" : [
+        "https://proton.greymass.com",
+        "https://proton.eoscafeblock.com"
+      ],
+      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu"
+    },
+    "symbol": "XPR_XUSDC",
+    "tradeIntervalMS": "5000",
+    "username": "user1"
   }
 }

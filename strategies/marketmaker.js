@@ -1,6 +1,7 @@
 // a basic market maker strategy
 import * as dexapi from '../dexapi.js';
-import getLogger, { getConfig } from '../utils.js';
+import { cancelOrder } from '../dexrpc.js';
+import { getConfig, getLogger } from '../utils.js';
 
 // Trading config
 const config = getConfig();
@@ -26,14 +27,24 @@ const getMarketDetails = async () => {
 /**
  * Market Making Trading Strategy
  */
-const makeMarkets = async () => {
+const trade = async () => {
   const logger = getLogger();
-  logger.info('Executing market maker trades');
+  logger.info(`Executing ${config.symbol} market maker trades on account ${config.username}`);
 
-  const marketDetails = await getMarketDetails();
-  logger.info(marketDetails);
+  try {
+    // await cancelOrder(1046821);
+    const marketDetails = await getMarketDetails();
+    logger.info(marketDetails);
+  } catch (error) {
+    logger.error(error.message);
+  }
+
   // prepareOrders();
   // placeOrders();
 };
 
-export default makeMarkets;
+const strategy = {
+  trade,
+};
+
+export default strategy;

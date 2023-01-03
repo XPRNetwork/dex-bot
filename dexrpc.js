@@ -1,45 +1,38 @@
 // Interactions with the DEX contract, via RPC
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import * as dexapi from './dexapi.js';
-import getLogger, { getConfig } from './utils.js';
+import { getConfig, getLogger } from './utils.js';
 
 const logger = getLogger();
 
 const config = getConfig();
-const rpcConfig = config.rpc;
-const ENDPOINTS = rpcConfig.endpoints;
-
-// Authorization
-const authorization = [{
-  actor: config.username,
-  permission: 'active',
-}];
+const { username } = config;
+const { endpoints, privateKey } = config.get('rpc');
 
 // Initialize
-const rpc = new JsonRpc(ENDPOINTS);
-
+const rpc = new JsonRpc(endpoints);
 const api = new Api({
   rpc,
-  signatureProvider: new JsSignatureProvider([rpcConfig.privateKey]),
+  signatureProvider: new JsSignatureProvider([privateKey]),
+});
+
+const apiTransact = (actions) => api.transact({ actions }, {
+  blocksBehind: 300,
+  expireSeconds: 3000,
 });
 
 /**
- * Send the transactions to the API
- * @param {array} actions - list of actions
- * @returns {object}
+ * Given a list of on-chain actions, apply authorization and send
+ * @param {array} actions - array of actions to send to the chain
  */
 const transact = async (actions) => {
   // apply authorization to each action
-  const actionsWithAuth = actions.map((action) => ({
-    ...action,
-    authorization,
-  }));
-
-  const response = await api.transact({ actionsWithAuth }, {
-    blocksBehind: 300,
-    expireSeconds: 3000,
-  });
-  return response;
+  const authorization = [{
+    actor: username,
+    permission: 'active',
+  }];
+  const authorizedActions = actions.map((action) => ({ ...action, authorization }));
+  await apiTransact(authorizedActions);
 };
 
 export const ORDERSIDES = {
@@ -80,7 +73,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
       account: bidToken.contract,
       name: 'transfer',
       data: {
-        from: config.username,
+        from: username,
         to: 'dex',
         quantity: quantityText,
         memo: '',
@@ -91,7 +84,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
       name: 'placeorder',
       data: {
         market_id: market.market_id,
-        account: config.username,
+        account: username,
         order_type: ORDERTYPES.LIMIT,
         order_side: orderSide,
         quantity: quantityNormalized,
@@ -119,7 +112,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
     },
   ];
 
-  const response = await transact(actions);
+  const response = await apiTransact(actions);
   return response;
 };
 
@@ -135,7 +128,7 @@ export const cancelOrder = async (orderId) => {
       account: 'dex',
       name: 'cancelorder',
       data: {
-        account: config.username,
+        account: username,
         order_id: orderId,
       },
     },
@@ -150,7 +143,7 @@ export const cancelOrder = async (orderId) => {
 * @returns {Promise<void>} - nothing
 */
 export const cancelAllOrders = async () => {
-  const orders = await dexapi.fetchOpenOrders(config.username);
+  const orders = await dexapi.fetchOpenOrders(username);
   await Promise.all(orders.map(async (order) => {
     // TODO: handle errors (race condition)
     await cancelOrder(order.order_id);

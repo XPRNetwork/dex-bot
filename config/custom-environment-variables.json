@@ -1,0 +1,8 @@
+{
+  "bot" : {
+    "rpc": {
+      "privateKey": "PROTON_PRIVATE_KEY"
+    },
+    "username": "PROTON_USERNAME"
+  }
+}
