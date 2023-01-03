@@ -1,7 +1,7 @@
-// Contains methods for interacting with the off-chain DEX API
-import config from 'config';
+import { getConfig } from './utils.js';
 
-const apiConfig = config.get('api');
+// Contains methods for interacting with the off-chain DEX API
+const apiConfig = getConfig().api;
 
 /**
  * Generic GET request to one of the APIs

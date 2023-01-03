@@ -1,3 +1,4 @@
+import config from 'config';
 import winston from 'winston';
 
 const logger = winston.createLogger({
@@ -5,5 +6,8 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
-const getLogger = () => logger;
-export default getLogger;
+export const getLogger = () => logger;
+
+const botConfig = config.get('bot');
+// TODO: apply env. variables for username and private key
+export const getConfig = () => botConfig;

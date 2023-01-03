@@ -1,18 +1,17 @@
 // Interactions with the DEX contract, via RPC
-import config from 'config';
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import * as dexapi from './dexapi.js';
-import getLogger from './utils.js';
+import getLogger, { getConfig } from './utils.js';
 
 const logger = getLogger();
 
-const botConfig = config.get('bot');
-const rpcConfig = config.get('rpc');
+const config = getConfig();
+const rpcConfig = config.rpc;
 const ENDPOINTS = rpcConfig.endpoints;
 
 // Authorization
 const authorization = [{
-  actor: botConfig.username,
+  actor: config.username,
   permission: 'active',
 }];
 
@@ -81,7 +80,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
       account: bidToken.contract,
       name: 'transfer',
       data: {
-        from: botConfig.username,
+        from: config.username,
         to: 'dex',
         quantity: quantityText,
         memo: '',
@@ -92,7 +91,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
       name: 'placeorder',
       data: {
         market_id: market.market_id,
-        account: botConfig.username,
+        account: config.username,
         order_type: ORDERTYPES.LIMIT,
         order_side: orderSide,
         quantity: quantityNormalized,
@@ -136,7 +135,7 @@ export const cancelOrder = async (orderId) => {
       account: 'dex',
       name: 'cancelorder',
       data: {
-        account: botConfig.username,
+        account: config.username,
         order_id: orderId,
       },
     },
@@ -151,7 +150,7 @@ export const cancelOrder = async (orderId) => {
 * @returns {Promise<void>} - nothing
 */
 export const cancelAllOrders = async () => {
-  const orders = await dexapi.fetchOpenOrders(botConfig.username);
+  const orders = await dexapi.fetchOpenOrders(config.username);
   await Promise.all(orders.map(async (order) => {
     // TODO: handle errors (race condition)
     await cancelOrder(order.order_id);

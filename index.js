@@ -1,5 +1,4 @@
-import config from 'config';
-import getLogger from './utils.js';
+import getLogger, { getConfig } from './utils.js';
 import * as dexapi from './dexapi.js';
 import * as dexrpc from './dexrpc.js';
 import * as strategy from './strategies/marketmaker.js';
@@ -19,7 +18,7 @@ const trade = async () => {
  * This sets up the logic for the application, the looping, timing, and what to do on exit.
  */
 const main = async () => {
-  const settings = config.get('bot');
+  const config = getConfig();
   const logger = getLogger();
 
   await dexapi.initialize();
@@ -31,7 +30,7 @@ const main = async () => {
       } catch (error) {
         logger.error(error.message);
       }
-    }, settings.tradeIntervalMS);
+    }, config.tradeIntervalMS);
 
     // Set things up so that when application receives ctl-c we cancel all open orders
     process.stdin.resume();
