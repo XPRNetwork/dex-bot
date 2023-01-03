@@ -2,6 +2,8 @@
 
 This is code for a basic trading bot against the Proton DEX, https://protondex.com/.
 
+[![ESLint SAST scan workflow](https://github.com/squdgy/dexbot/actions/workflows/eslint.yml/badge.svg?event=push)](https://github.com/squdgy/dexbot/security/code-scanning)
+
 ## Getting Started
 
 ### prerequisites
