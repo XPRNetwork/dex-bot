@@ -1,4 +1,6 @@
 # dexbot
+[![license][license-img]][license-url]
+[![release][release-img]][release-url]
 
 This is code for a basic trading bot against the Proton DEX, https://protondex.com/.
 
