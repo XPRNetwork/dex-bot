@@ -4,6 +4,8 @@ import * as dexapi from './dexapi.js';
 import * as dexrpc from './dexrpc.js';
 import * as strategy from './strategies/marketmaker.js';
 
+const x = 2;
+
 /**
  * This is where we call the main maker trading strategy.
  * @param {winston} logger - logger for logging info and errors
