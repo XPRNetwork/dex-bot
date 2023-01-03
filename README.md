@@ -10,8 +10,12 @@ This is code for a basic trading bot against the Proton DEX, https://protondex.c
 
 ### run the code
 1. `npm install`
-1. update config in dexrpc.js to use your own username and private key
-1. edit the main method in index.js to use the market you would like to trade in
+1. Add your account name and private key to environment variables, eg
+```
+export PROTON_USERNAME=user1
+export PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu
+```
+1. edit config/default.json to use the market you would like to trade in (symbol value)
 1. `npm run bot`
 
 ### coding references
@@ -21,23 +25,42 @@ This is code for a basic trading bot against the Proton DEX, https://protondex.c
 - general documentation on interacting with proton contracts: https://docs.protonchain.com/built-with-proton.html#sdks
 
 ## config params
+config/default.json has other config values you can change
 ```
 {
   "bot" : {
-      "symbol": "XPR_XUSDC", // market to trade in
-      "username": "user1", // username of trader
-      "tradeIntervalMS": "50000" // how often to attempt trade
-  },
-  "rpc": {
-    "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu", // private key of trader
-    "endpoints" : [ // endpoints for RPC API
-      "https://proton.greymass.com",
-      "https://proton.eoscafeblock.com"
-    ]
-  },
-  "api": {
-    "apiRoot": "https://metal-dexdb.global.binfra.one/dex", // api for readonly dex api
-    "lightApiRoot": "https://lightapi.eosamsterdam.net/api" // api for readonly proton api
+    "api": {
+        
+      // api for readonly dex api
+      "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
+
+      // api for readonly proton api
+      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+    },
+
+    // set to true in order to cancel all open orders when the bot shuts down
+    "cancelOpenOrdersOnExit": false,
+
+    "rpc": {
+
+      // endpoints for RPC API
+      "endpoints" : [
+        "https://proton.greymass.com",
+        "https://proton.eoscafeblock.com"
+      ],
+
+      // private key associated with username
+      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu" 
+    },
+
+    // market to trade in
+    "symbol": "XPR_XUSDC",
+
+    // how often to attempt trade
+    "tradeIntervalMS": "5000",
+
+    // username of trader AND API account
+    "username": "user1"
   }
 }
 ```

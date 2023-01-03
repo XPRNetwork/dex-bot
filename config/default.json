@@ -4,6 +4,7 @@
       "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
     },
+    "cancelOpenOrdersOnExit": false,
     "rpc": {
       "endpoints" : [
         "https://proton.greymass.com",

@@ -30,14 +30,16 @@ const main = async () => {
       }
     }, config.tradeIntervalMS);
 
-    // Set things up so that when application receives ctl-c we cancel all open orders
-    process.stdin.resume();
-    process.on('SIGINT', async () => {
-      clearInterval(tradeInterval); // stop attempting new trades
-      logger.info('Canceling all open orders and shutting down');
-      // await dexrpc.cancelAllOrders();
-      process.exit();
-    });
+    if (config.cancelOpenOrdersOnExit) {
+      // Set things up so that when application receives ctl-c we cancel all open orders
+      process.stdin.resume();
+      process.on('SIGINT', async () => {
+        clearInterval(tradeInterval); // stop attempting new trades
+        logger.info('Canceling all open orders and shutting down');
+        await dexrpc.cancelAllOrders();
+        process.exit();
+      });
+    }
   } catch (error) {
     logger.error(error.message);
   }

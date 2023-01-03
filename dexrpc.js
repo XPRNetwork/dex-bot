@@ -116,36 +116,34 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
   return response;
 };
 
+const createCancelAction = (orderId) => ({
+  account: 'dex',
+  name: 'cancelorder',
+  data: {
+    account: username,
+    order_id: orderId,
+  },
+});
+
 /**
  * Cancel a single order
  * @param {number} orderId - if of order to cancel
- * @returns {Promise<object>} - response object from the api.transact()
+ * @returns {Promise<void>}
  */
 export const cancelOrder = async (orderId) => {
   logger.info(`Canceling order with id: ${orderId}`);
-  const actions = [
-    {
-      account: 'dex',
-      name: 'cancelorder',
-      data: {
-        account: username,
-        order_id: orderId,
-      },
-    },
-  ];
-
-  const response = await transact(actions);
+  const response = await transact([createCancelAction(orderId)]);
   return response;
 };
 
 /**
  * Cancel all orders for the current account
-* @returns {Promise<void>} - nothing
+* @returns {Promise<void>}
 */
 export const cancelAllOrders = async () => {
   const orders = await dexapi.fetchOpenOrders(username);
-  await Promise.all(orders.map(async (order) => {
-    // TODO: handle errors (race condition)
-    await cancelOrder(order.order_id);
-  }));
+  logger.info(`Canceling all (${orders.length}) orders`);
+  const actions = orders.map((order) => createCancelAction(order.order_id));
+  const response = await transact(actions);
+  return response;
 };
