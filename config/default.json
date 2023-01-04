@@ -13,7 +13,7 @@
       "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu"
     },
     "symbol": "XPR_XUSDC",
-    "tradeIntervalMS": "5000",
+    "tradeIntervalMS": "10000",
     "username": "user1"
   }
 }

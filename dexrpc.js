@@ -56,21 +56,28 @@ export const FILLTYPES = {
  * Place a buy or sell limit order
  * @param {string} symbol - market symbol, ex. 'XPR_XMD'
  * @param {number} orderSide - 1 = BUY, 2 = SELL; use ORDERSIDES.BUY, ORDERSIDES.SELL
- * @param {number} quantity - how many to buy/sell
+ * @param {number} quantity - for buys, the qty of ask tokens, for sells the qty of bid tokens
  * @param {number} price - price to pay
  * @returns nothing - use fetchOpenOrders to retrieve details of successful but unfilled orders
  * @returns {Promise<object>} - response object from the api.transact()
 */
 export const submitLimitOrder = async (symbol, orderSide, quantity, price = undefined) => {
+  logger.info(`Attempting to place order for ${symbol} ${quantity} price:${price}, ${orderSide}`);
   const market = dexapi.getMarketBySymbol(symbol);
   const askToken = market.ask_token;
   const bidToken = market.bid_token;
-  const quantityText = `${quantity.toFixed(bidToken.precision)} ${bidToken.code}`;
-  const quantityNormalized = quantity * 10 ** bidToken.precision;
-  const pricesNormalized = price * 10 ** askToken.precision;
+  const quantityText = orderSide === ORDERSIDES.SELL
+    ? `${quantity.toFixed(bidToken.precision)} ${bidToken.code}`
+    : `${quantity.toFixed(askToken.precision)} ${askToken.code}`;
+  const quantityNormalized = orderSide === ORDERSIDES.SELL
+    ? quantity * 10 ** bidToken.precision
+    : quantity * 10 ** askToken.precision;
+  const priceNormalized = orderSide === ORDERSIDES.SELL
+    ? Math.trunc(price * 10 ** askToken.precision)
+    : Math.trunc(price * 10 ** bidToken.precision);
   const actions = [
     {
-      account: bidToken.contract,
+      account: orderSide === ORDERSIDES.SELL ? bidToken.contract : askToken.contract,
       name: 'transfer',
       data: {
         from: username,
@@ -88,7 +95,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
         order_type: ORDERTYPES.LIMIT,
         order_side: orderSide,
         quantity: quantityNormalized,
-        price: pricesNormalized,
+        price: priceNormalized,
         bid_symbol: {
           sym: `${bidToken.precision},${bidToken.code}`,
           contract: bidToken.contract,
@@ -112,7 +119,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
     },
   ];
 
-  const response = await apiTransact(actions);
+  const response = await transact(actions);
   return response;
 };
 

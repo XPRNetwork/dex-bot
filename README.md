@@ -1,14 +1,16 @@
 # dexbot
 
-This is code for a basic trading bot against the Proton DEX, https://protondex.com/.
+This is code for a basic market making trading bot against the Proton DEX, https://protondex.com/.
 
 [![ESLint SAST scan workflow](https://github.com/squdgy/dexbot/actions/workflows/eslint.yml/badge.svg?event=push)](https://github.com/squdgy/dexbot/security/code-scanning)
+
+This bot works against a single market. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. This strategy is a money losing strategy with fees taken into account.
 
 ## Getting Started
 
 ### prerequisites
 - a proton account (https://www.proton.org/wallet/)
-- enough funds in your account in the markets that you want to trade in
+- enough funds in your account to buy and/or sell in the market that you want to trade in
 
 ### run the code
 1. `npm install`
