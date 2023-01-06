@@ -6,6 +6,8 @@ This is code for a basic market making trading bot against the Proton DEX, https
 
 This bot works against a single market. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. This strategy is a money losing strategy with fees taken into account.
 
+This has been tested with XPR_XUSDC & XPR_XMD markets.
+
 ## Getting Started
 
 ### prerequisites

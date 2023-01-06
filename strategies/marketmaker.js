@@ -37,7 +37,7 @@ const getOpenOrders = async () => {
 const prepareOrders = async (marketDetails, openOrders) => {
   const { market } = marketDetails;
   const quantityStep = 10 ** (market.bid_token.precision * -1);
-  const priceStep = 10 ** (market.ask_token.precision * -1);
+  const priceStep = (10 ** ((market.ask_token.precision - 1) * -1));
   const minOrderTotal = market.order_min / 10 ** market.ask_token.precision;
   const minSellQuantity = Math.ceil(minOrderTotal / marketDetails.highestBid);
   const orders = [];
