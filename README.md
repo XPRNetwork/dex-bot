@@ -39,6 +39,15 @@ config/default.json has other config values you can change
     // set to true in order to cancel all open orders when the bot shuts down
     "cancelOpenOrdersOnExit": false,
 
+    "marketmaker": {
+      // how many buy and how many sell orders to put on the books
+      "numPairs": 2,
+
+      // market to trade in
+      "symbol": "XPR_XUSDC"
+    },
+
+
     "rpc": {
 
       // endpoints for RPC API
@@ -50,9 +59,6 @@ config/default.json has other config values you can change
       // private key associated with username
       "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu" 
     },
-
-    // market to trade in
-    "symbol": "XPR_XUSDC",
 
     // how often to attempt trade
     "tradeIntervalMS": "5000",

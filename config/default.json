@@ -5,6 +5,10 @@
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
     },
     "cancelOpenOrdersOnExit": false,
+    "marketmaker": {
+      "numPairs": 2,
+      "symbol": "XPR_XUSDC"
+    },
     "rpc": {
       "endpoints" : [
         "https://proton.greymass.com",
@@ -12,7 +16,6 @@
       ],
       "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu"
     },
-    "symbol": "XPR_XUSDC",
     "tradeIntervalMS": "10000",
     "username": "user1"
   }
