@@ -4,7 +4,7 @@ import * as dexrpc from './dexrpc.js';
 import strategy from './strategies/marketmaker.js';
 
 /**
- * This is where we call the main maker trading strategy.
+ * This is where we call the trading strategy.
  * @returns {Promise<void>} - doesn't return anything
  */
 const trade = async () => {
@@ -21,7 +21,7 @@ const main = async () => {
 
   await dexapi.initialize();
   try {
-    // attempt a trade every n milliseconds
+    // attempt to trade every n milliseconds
     const tradeInterval = setInterval(async () => {
       try {
         await trade();

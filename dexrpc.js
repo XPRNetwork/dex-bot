@@ -71,11 +71,11 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
     ? `${quantity.toFixed(bidToken.precision)} ${bidToken.code}`
     : `${quantity.toFixed(askToken.precision)} ${askToken.code}`;
   const quantityNormalized = orderSide === ORDERSIDES.SELL
-    ? quantity.toFixed(bidToken.precision) * (10 ** bidToken.precision)
-    : quantity.toFixed(askToken.precision) * (10 ** askToken.precision);
+    ? quantity.toFixed(bidToken.precision) * bidToken.multiplier
+    : quantity.toFixed(askToken.precision) * askToken.multiplier;
   const priceNormalized = orderSide === ORDERSIDES.SELL
-    ? Math.trunc(price * (10 ** askToken.precision))
-    : Math.trunc(price * (10 ** bidToken.precision));
+    ? Math.trunc(price * askToken.multiplier)
+    : Math.trunc(price * bidToken.multiplier);
   const actions = [
     {
       account: orderSide === ORDERSIDES.SELL ? bidToken.contract : askToken.contract,
