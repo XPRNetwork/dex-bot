@@ -62,7 +62,8 @@ export const FILLTYPES = {
  * @returns {Promise<object>} - response object from the api.transact()
 */
 export const submitLimitOrder = async (symbol, orderSide, quantity, price = undefined) => {
-  logger.info(`Attempting to place order for ${symbol} ${quantity} price:${price}, ${orderSide}`);
+  const orderSideText = orderSide === ORDERSIDES.SELL ? 'sell' : 'buy';
+  logger.info(`Attempting to place order for ${symbol} ${quantity} price:${price}, ${orderSideText}`);
   const market = dexapi.getMarketBySymbol(symbol);
   const askToken = market.ask_token;
   const bidToken = market.bid_token;

@@ -6,8 +6,8 @@
     },
     "cancelOpenOrdersOnExit": false,
     "marketmaker": {
-      "numPairs": 3,
-      "symbol": "XPR_XMD"
+      "numPairs": 5,
+      "symbol": "XPR_XUSDC"
     },
     "rpc": {
       "endpoints" : [

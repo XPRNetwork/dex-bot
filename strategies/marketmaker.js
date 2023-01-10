@@ -46,7 +46,7 @@ const prepareOrders = async (marketDetails, openOrders) => {
     // buy order
     orders.push({
       orderSide: ORDERSIDES.BUY,
-      price: (marketDetails.highestBid - priceStep * (index + 1))
+      price: (marketDetails.lowestAsk - priceStep * (index + 1))
         .toFixed(market.ask_token.precision),
       quantity: minOrderTotal + index * quantityStep,
       symbol,
@@ -54,7 +54,7 @@ const prepareOrders = async (marketDetails, openOrders) => {
     // sell order
     orders.push({
       orderSide: ORDERSIDES.SELL,
-      price: (marketDetails.lowestAsk + priceStep * (index + 1))
+      price: (marketDetails.highestBid + priceStep * (index + 1))
         .toFixed(market.ask_token.precision),
       quantity: minSellQuantity + index,
       symbol,
