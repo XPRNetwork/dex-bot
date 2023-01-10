@@ -2,6 +2,7 @@
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import * as dexapi from './dexapi.js';
 import { getConfig, getLogger } from './utils.js';
+import { Decimal } from 'decimal.js';
 
 const logger = getLogger();
 
@@ -73,8 +74,8 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
     ? `${quantity.toFixed(bidToken.precision)} ${bidToken.code}`
     : `${quantity.toFixed(askToken.precision)} ${askToken.code}`;
   const quantityNormalized = orderSide === ORDERSIDES.SELL
-    ? quantity.toFixed(bidToken.precision) * bidToken.multiplier
-    : quantity.toFixed(askToken.precision) * askToken.multiplier;
+    ? (new Decimal(quantity.toFixed(bidToken.precision)).times(bidToken.multiplier)).toString()
+    : (new Decimal(quantity.toFixed(askToken.precision)).times(askToken.multiplier)).toString();
   const priceNormalized = orderSide === ORDERSIDES.SELL
     ? Math.trunc(price * askToken.multiplier)
     : Math.trunc(price * bidToken.multiplier);

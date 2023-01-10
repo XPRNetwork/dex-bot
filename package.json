@@ -23,6 +23,7 @@
   "dependencies": {
     "@proton/js": "^27.3.0",
     "config": "^3.3.8",
+    "decimal.js": "^10.4.3",
     "winston": "^3.8.2"
   },
   "devDependencies": {
