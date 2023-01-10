@@ -59,6 +59,28 @@ export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
 };
 
 /**
+ * Given a market symbol, return the most recent trades to have executed in that market
+ * @param {string} symbol - market symbol
+ * @param {number} count - how many trades to return
+ * @param {number} offset - where to start, used for paging
+ * @returns a list of recent trades
+ */
+export const fetchTrades = async (symbol, count = 100, offset = 0) => {
+  const response = await fetchFromAPI(apiConfig.apiRoot, `/v1/trades/recent?symbol=${symbol}&limit=${count}&offset=${offset}`);
+  return response;
+};
+
+/**
+ * Given a market symbol, get the price for it
+ * @param {string} symbol - market symbol
+ * @returns returns the price of the most recently executed trade
+ */
+export const fetchLatestPrice = async (symbol) => {
+  const trades = await fetchTrades(symbol, 1);
+  return trades[0].price;
+};
+
+/**
  *
  * @param {string} username - name of proton user/account to retrieve history for
  * @returns {Promise<array>} - array of balances,

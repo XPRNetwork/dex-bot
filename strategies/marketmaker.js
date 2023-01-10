@@ -7,18 +7,16 @@ import { getConfig, getLogger } from '../utils.js';
 const config = getConfig();
 const { username } = config;
 const mmConfig = config.get('marketmaker');
-const { numPairs, symbol } = mmConfig;
+const { minSpread, numPairs, symbol } = mmConfig;
 
 const getMarketDetails = async () => {
   const market = dexapi.getMarketBySymbol(symbol);
-  // TODO: compute params for order book based on precision of symbol
-  const orderBook = await dexapi.fetchOrderBook(symbol, 100, 1000000);
+  const price = await dexapi.fetchLatestPrice(symbol);
 
   const tradeStatus = {
     time: new Date().toISOString(),
-    lowestAsk: orderBook.asks[0].level,
-    highestBid: orderBook.bids[0].level,
     market,
+    price,
   };
 
   return tradeStatus;
@@ -37,25 +35,24 @@ const getOpenOrders = async () => {
 const prepareOrders = async (marketDetails, openOrders) => {
   const { market } = marketDetails;
   const quantityStep = 10 / market.bid_token.multiplier;
-  const priceStep = 10 / market.ask_token.multiplier;
   const minOrderTotal = market.order_min / market.ask_token.multiplier;
-  const minSellQuantity = Math.ceil(minOrderTotal / marketDetails.highestBid);
+  const minSellQuantity = Math.ceil(minOrderTotal / marketDetails.price);
   const orders = [];
 
   for (let index = 0; index < numPairs; index += 1) {
     // buy order
+    const buyPrice = (1 + minSpread * (0 - index)) * marketDetails.price;
     orders.push({
       orderSide: ORDERSIDES.BUY,
-      price: (marketDetails.lowestAsk - priceStep * (index + 1))
-        .toFixed(market.ask_token.precision),
+      price: buyPrice.toFixed(market.ask_token.precision),
       quantity: minOrderTotal + index * quantityStep,
       symbol,
     });
     // sell order
+    const sellPrice = (1 + minSpread * (numPairs - (index + 1))) * marketDetails.price;
     orders.push({
       orderSide: ORDERSIDES.SELL,
-      price: (marketDetails.highestBid + priceStep * (index + 1))
-        .toFixed(market.ask_token.precision),
+      price: sellPrice.toFixed(market.ask_token.precision),
       quantity: minSellQuantity + index,
       symbol,
     });

@@ -43,6 +43,9 @@ config/default.json has other config values you can change
     "cancelOpenOrdersOnExit": false,
 
     "marketmaker": {
+      // minimum spread to capture 0.001 = 0.1%
+      "minSpread": 0.001,
+
       // how many buy and how many sell orders to put on the books
       "numPairs": 2,
 
@@ -75,6 +78,11 @@ config/default.json has other config values you can change
 ## Actions available in this bot code base
 
 ### Markets
+- **fetchLatestPrice** - retrieves the latest price for a given symbol
+```
+    const price = await fetchLatestPrice('XPR_XUSDC');
+    logger.info(price);
+```
 - **fetchMarkets** - retrieves all markets that exist on the proton dex
 ```
     const response = await fetchMarkets();
@@ -83,6 +91,11 @@ config/default.json has other config values you can change
 - **fetchOrderBook** - retrieves order book data for a single market
 ```
     const response = await fetchOrderBook('XBTC_XUSDC', 100, 0.01);
+    logger.info(response);
+```
+- **fetchTrades** - retrieves trades on the given market
+```
+    const response = await fetchTrades('XPR_XUSDC', 100, 0);
     logger.info(response);
 ```
 

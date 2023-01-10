@@ -6,6 +6,7 @@
     },
     "cancelOpenOrdersOnExit": false,
     "marketmaker": {
+      "minSpread": 0.001,
       "numPairs": 5,
       "symbol": "XPR_XUSDC"
     },

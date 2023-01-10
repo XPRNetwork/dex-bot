@@ -63,10 +63,12 @@ export const FILLTYPES = {
 */
 export const submitLimitOrder = async (symbol, orderSide, quantity, price = undefined) => {
   const orderSideText = orderSide === ORDERSIDES.SELL ? 'sell' : 'buy';
-  logger.info(`Attempting to place order for ${symbol} ${quantity} price:${price}, ${orderSideText}`);
+  logger.info(`Attempting to place ${orderSideText} order for ${quantity} ${symbol} at ${price}`);
+
   const market = dexapi.getMarketBySymbol(symbol);
   const askToken = market.ask_token;
   const bidToken = market.bid_token;
+
   const quantityText = orderSide === ORDERSIDES.SELL
     ? `${quantity.toFixed(bidToken.precision)} ${bidToken.code}`
     : `${quantity.toFixed(askToken.precision)} ${askToken.code}`;
@@ -76,6 +78,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
   const priceNormalized = orderSide === ORDERSIDES.SELL
     ? Math.trunc(price * askToken.multiplier)
     : Math.trunc(price * bidToken.multiplier);
+
   const actions = [
     {
       account: orderSide === ORDERSIDES.SELL ? bidToken.contract : askToken.contract,
