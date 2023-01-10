@@ -23,6 +23,7 @@ export PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRgg
 ```
 1. edit config/default.json to use the market you would like to trade in (symbol value)
 1. `npm run bot`
+1. To run on testnet: `NODE_ENV=test npm run bot`
 
 ## config params
 config/default.json has other config values you can change
