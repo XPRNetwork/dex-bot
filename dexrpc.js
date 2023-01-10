@@ -1,8 +1,8 @@
 // Interactions with the DEX contract, via RPC
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
+import { Decimal } from 'decimal.js';
 import * as dexapi from './dexapi.js';
 import { getConfig, getLogger } from './utils.js';
-import { Decimal } from 'decimal.js';
 
 const logger = getLogger();
 
