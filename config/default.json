@@ -7,7 +7,7 @@
     "cancelOpenOrdersOnExit": false,
     "marketmaker": {
       "minSpread": 0.001,
-      "numPairs": 3,
+      "numPairs": 5,
       "symbol": "XPR_XUSDC"
     },
     "rpc": {
@@ -15,7 +15,8 @@
         "https://proton.greymass.com",
         "https://proton.eoscafeblock.com"
       ],
-      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu"
+      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu",
+      "privateKeyPermission": "active"
     },
     "tradeIntervalMS": "10000",
     "username": "user1"

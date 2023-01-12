@@ -63,7 +63,10 @@ config/default.json has other config values you can change
       ],
 
       // private key associated with username
-      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu" 
+      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu",
+
+      // permissions on the key ex. active or owner
+      "privateKeyPermission": "active"
     },
 
     // how often to attempt trade

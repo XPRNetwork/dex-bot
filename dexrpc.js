@@ -8,7 +8,7 @@ const logger = getLogger();
 
 const config = getConfig();
 const { username } = config;
-const { endpoints, privateKey } = config.get('rpc');
+const { endpoints, privateKey, privateKeyPermission } = config.get('rpc');
 
 // Initialize
 const rpc = new JsonRpc(endpoints);
@@ -30,7 +30,7 @@ const transact = async (actions) => {
   // apply authorization to each action
   const authorization = [{
     actor: username,
-    permission: 'active',
+    permission: privateKeyPermission,
   }];
   const authorizedActions = actions.map((action) => ({ ...action, authorization }));
   await apiTransact(authorizedActions);

@@ -39,61 +39,67 @@ const prepareOrders = async (marketDetails, openOrders) => {
   const minSellQuantity = Math.ceil(minOrderTotal / marketDetails.price);
   const orders = [];
 
-  for (let index = 0; index < numPairs; index += 1) {
-    // buy order
-    const buyPrice = (1 + minSpread * (0 - index)) * marketDetails.price;
-    orders.push({
-      orderSide: ORDERSIDES.BUY,
-      price: buyPrice.toFixed(market.ask_token.precision),
-      quantity: minOrderTotal + index * quantityStep,
-      symbol,
-    });
-    // sell order
-    const sellPrice = (1 + minSpread * (numPairs - (index + 1))) * marketDetails.price;
-    orders.push({
-      orderSide: ORDERSIDES.SELL,
-      price: sellPrice.toFixed(market.ask_token.precision),
-      quantity: minSellQuantity + index,
-      symbol,
-    });
-  }
-
-  // now filter out any open orders we already have
-  const ordersToPlace = [];
   let numBuys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY).length;
   let numSells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL).length;
-  orders.forEach((order) => {
-    const isBuy = order.orderSide === ORDERSIDES.BUY;
-    let doInclude = true;
-    openOrders.forEach((openOrder) => {
-      // don't add new orders at the same price on the same side of the book
-      if (order.orderSide === openOrder.order_side
-        && order.price === openOrder.price.toString()) {
-        doInclude = false;
-      }
-      // don't add new orders if it will result in too many orders
-      if (isBuy && numBuys >= numPairs) {
-        doInclude = false;
-      }
-      if (!isBuy && numSells >= numPairs) {
-        doInclude = false;
-      }
-    });
-    if (doInclude) {
-      ordersToPlace.push(order);
-      if (isBuy) {
-        numBuys += 1;
-      } else {
-        numSells += 1;
-      }
-    }
-  });
 
-  return ordersToPlace;
+  for (let index = 0; index < numPairs; index += 1) {
+    // buy order
+    if (numBuys < numPairs) {
+      const buyPrice = (1 + minSpread * (0 - index)) * marketDetails.price;
+      orders.push({
+        orderSide: ORDERSIDES.BUY,
+        price: buyPrice.toFixed(market.ask_token.precision),
+        quantity: minOrderTotal + index * quantityStep,
+        symbol,
+      });
+      numBuys += 1;
+    }
+    // sell order
+    if (numSells < numPairs) {
+      const sellPrice = (1 + minSpread * (numPairs - (index + 1))) * marketDetails.price;
+      orders.push({
+        orderSide: ORDERSIDES.SELL,
+        price: sellPrice.toFixed(market.ask_token.precision),
+        quantity: minSellQuantity + index,
+        symbol,
+      });
+      numSells += 1;
+    }
+  }
+
+  return orders;
+};
+
+const isValidOrder = (order, orderBook) => {
+  // ensure that the order will not execute if it would match to an order already on the books
+  const lowestAsk = orderBook.asks[0].level;
+  const highestBid = orderBook.bids[0].level;
+  if (order.orderSide === ORDERSIDES.SELL && order.price <= highestBid) {
+    getLogger().warn(`Not placing sell order as it would execute: ${order.price} highestBid: ${highestBid}`);
+    return false;
+  }
+  if (order.orderSide === ORDERSIDES.BUY && order.price >= lowestAsk) {
+    getLogger().warn(`Not placing buy order as it would execute: ${order.price} lowestAsk: ${highestBid}`);
+    return false;
+  }
+
+  // ensure that the order really meets the min. value
+  const market = dexapi.getMarketBySymbol(symbol);
+  const total = order.orderSide === ORDERSIDES.SELL ? order.price * order.quantity : order.quantity;
+  if (total < market.order_min / market.ask_token.multiplier) {
+    getLogger().warn(`Not placing sell order because it does not meet the minimum order requirements ${total} < ${market.order_min / market.ask_token.multiplier}`);
+    return false;
+  }
+
+  return true;
 };
 
 const placeOrders = async (orders) => {
+  const orderBook = await dexapi.fetchOrderBook(orders[0].symbol, 1);
   orders.forEach(async (order) => {
+    if (!isValidOrder(order, orderBook)) {
+      return;
+    }
     await submitLimitOrder(order.symbol, order.orderSide, order.quantity, order.price);
   });
 };
