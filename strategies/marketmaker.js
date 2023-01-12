@@ -12,14 +12,19 @@ const { minSpread, numPairs, symbol } = mmConfig;
 const getMarketDetails = async () => {
   const market = dexapi.getMarketBySymbol(symbol);
   const price = await dexapi.fetchLatestPrice(symbol);
+  const orderBook = await dexapi.fetchOrderBook(symbol, 1);
+  const lowestAsk = orderBook.asks[0].level;
+  const highestBid = orderBook.bids[0].level;
 
-  const tradeStatus = {
-    time: new Date().toISOString(),
+  const details = {
+    highestBid,
+    lowestAsk,
     market,
     price,
+    time: new Date().toISOString(),
   };
 
-  return tradeStatus;
+  return details;
 };
 
 const getOpenOrders = async () => {
@@ -36,7 +41,8 @@ const prepareOrders = async (marketDetails, openOrders) => {
   const { market } = marketDetails;
   const quantityStep = 10 / market.bid_token.multiplier;
   const minOrderTotal = market.order_min / market.ask_token.multiplier;
-  const minSellQuantity = Math.ceil(minOrderTotal / marketDetails.price);
+  const startPrice = (marketDetails.lowestAsk + marketDetails.highestBid) / 2;
+  const minSellQuantity = minOrderTotal / Math.max(marketDetails.price, startPrice);
   const orders = [];
 
   let numBuys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY).length;
@@ -45,7 +51,8 @@ const prepareOrders = async (marketDetails, openOrders) => {
   for (let index = 0; index < numPairs; index += 1) {
     // buy order
     if (numBuys < numPairs) {
-      const buyPrice = (1 + minSpread * (0 - index)) * marketDetails.price;
+      const buyPrice = (1 + minSpread * (0 - index))
+        * Math.min(marketDetails.price, startPrice);
       orders.push({
         orderSide: ORDERSIDES.BUY,
         price: buyPrice.toFixed(market.ask_token.precision),
@@ -56,7 +63,8 @@ const prepareOrders = async (marketDetails, openOrders) => {
     }
     // sell order
     if (numSells < numPairs) {
-      const sellPrice = (1 + minSpread * (numPairs - (index + 1))) * marketDetails.price;
+      const sellPrice = (1 + minSpread * (numPairs - (index + 1)))
+        * Math.max(marketDetails.price, startPrice);
       orders.push({
         orderSide: ORDERSIDES.SELL,
         price: sellPrice.toFixed(market.ask_token.precision),
@@ -95,6 +103,7 @@ const isValidOrder = (order, orderBook) => {
 };
 
 const placeOrders = async (orders) => {
+  if (orders.length === 0) return;
   const orderBook = await dexapi.fetchOrderBook(orders[0].symbol, 1);
   orders.forEach(async (order) => {
     if (!isValidOrder(order, orderBook)) {
