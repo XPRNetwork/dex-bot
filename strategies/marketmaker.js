@@ -1,4 +1,5 @@
 // a basic market maker strategy
+import { BigNumber } from 'bignumber.js';
 import * as dexapi from '../dexapi.js';
 import { submitLimitOrder, ORDERSIDES } from '../dexrpc.js';
 import { getConfig, getLogger } from '../utils.js';
@@ -13,8 +14,8 @@ const getMarketDetails = async () => {
   const market = dexapi.getMarketBySymbol(symbol);
   const price = await dexapi.fetchLatestPrice(symbol);
   const orderBook = await dexapi.fetchOrderBook(symbol, 1);
-  const lowestAsk = orderBook.asks[0].level;
-  const highestBid = orderBook.bids[0].level;
+  const lowestAsk = orderBook.asks.length > 0 ? orderBook.asks[0].level : price;
+  const highestBid = orderBook.bids.length > 0 ? orderBook.bids[0].level : price;
 
   const details = {
     highestBid,
@@ -39,10 +40,14 @@ const getOpenOrders = async () => {
 // prepare the orders we want to have on the books
 const prepareOrders = async (marketDetails, openOrders) => {
   const { market } = marketDetails;
-  const quantityStep = 10 / market.bid_token.multiplier;
-  const minOrderTotal = market.order_min / market.ask_token.multiplier;
-  const startPrice = (marketDetails.lowestAsk + marketDetails.highestBid) / 2;
-  const minSellQuantity = minOrderTotal / Math.max(marketDetails.price, startPrice);
+  const bigMinSpread = new BigNumber(minSpread);
+  const lowestAsk = new BigNumber(marketDetails.lowestAsk);
+  const highestBid = new BigNumber(marketDetails.highestBid);
+  const lastSalePrice = new BigNumber(marketDetails.price);
+
+  const quantityStep = new BigNumber(10 / market.bid_token.multiplier);
+  const minOrderTotal = new BigNumber(market.order_min).dividedBy(market.ask_token.multiplier);
+  const startPrice = lowestAsk.plus(highestBid).dividedBy(2);
   const orders = [];
 
   let numBuys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY).length;
@@ -51,24 +56,27 @@ const prepareOrders = async (marketDetails, openOrders) => {
   for (let index = 0; index < numPairs; index += 1) {
     // buy order
     if (numBuys < numPairs) {
-      const buyPrice = (1 + minSpread * (0 - index))
-        * Math.min(marketDetails.price, startPrice);
+      const buyPrice = (bigMinSpread.times(0 - (index + 1)).plus(1))
+        .times(Math.min(lastSalePrice, startPrice));
+      const buyQuantity = minOrderTotal.plus(quantityStep.times(index + 1));
       orders.push({
         orderSide: ORDERSIDES.BUY,
-        price: buyPrice.toFixed(market.ask_token.precision),
-        quantity: minOrderTotal + index * quantityStep,
+        price: buyPrice.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
+        quantity: buyQuantity.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
         symbol,
       });
       numBuys += 1;
     }
+
     // sell order
     if (numSells < numPairs) {
-      const sellPrice = (1 + minSpread * (numPairs - (index + 1)))
-        * Math.max(marketDetails.price, startPrice);
+      const sellPrice = (bigMinSpread.times(0 + (index + 1)).plus(1))
+        .times(Math.min(lastSalePrice, startPrice));
+      const sellQuantity = minOrderTotal.dividedBy(sellPrice);
       orders.push({
         orderSide: ORDERSIDES.SELL,
-        price: sellPrice.toFixed(market.ask_token.precision),
-        quantity: minSellQuantity + index,
+        price: sellPrice.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
+        quantity: sellQuantity.toFixed(market.bid_token.precision, BigNumber.ROUND_UP).toString(),
         symbol,
       });
       numSells += 1;
@@ -78,10 +86,9 @@ const prepareOrders = async (marketDetails, openOrders) => {
   return orders;
 };
 
-const isValidOrder = (order, orderBook) => {
+const isValidOrder = (order, marketDetails) => {
   // ensure that the order will not execute if it would match to an order already on the books
-  const lowestAsk = orderBook.asks[0].level;
-  const highestBid = orderBook.bids[0].level;
+  const { highestBid, lowestAsk } = marketDetails;
   if (order.orderSide === ORDERSIDES.SELL && order.price <= highestBid) {
     getLogger().warn(`Not placing sell order as it would execute: ${order.price} highestBid: ${highestBid}`);
     return false;
@@ -102,11 +109,10 @@ const isValidOrder = (order, orderBook) => {
   return true;
 };
 
-const placeOrders = async (orders) => {
+const placeOrders = async (orders, marketDetails) => {
   if (orders.length === 0) return;
-  const orderBook = await dexapi.fetchOrderBook(orders[0].symbol, 1);
   orders.forEach(async (order) => {
-    if (!isValidOrder(order, orderBook)) {
+    if (!isValidOrder(order, marketDetails)) {
       return;
     }
     await submitLimitOrder(order.symbol, order.orderSide, order.quantity, order.price);
@@ -136,7 +142,7 @@ const trade = async () => {
 
     const marketDetails = await getMarketDetails();
     const preparedOrders = await prepareOrders(marketDetails, openOrders);
-    await placeOrders(preparedOrders);
+    await placeOrders(preparedOrders, marketDetails);
   } catch (error) {
     logger.error(error.message);
   }

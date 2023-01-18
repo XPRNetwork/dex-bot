@@ -1,6 +1,6 @@
 // Interactions with the DEX contract, via RPC
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
-import { Decimal } from 'decimal.js';
+import { BigNumber } from 'bignumber.js';
 import * as dexapi from './dexapi.js';
 import { getConfig, getLogger } from './utils.js';
 
@@ -54,11 +54,12 @@ export const FILLTYPES = {
 };
 
 /**
- * Place a buy or sell limit order
+ * Place a buy or sell limit order. Quantity and price are string values to
+ * avoid loss of precision when placing order
  * @param {string} symbol - market symbol, ex. 'XPR_XMD'
  * @param {number} orderSide - 1 = BUY, 2 = SELL; use ORDERSIDES.BUY, ORDERSIDES.SELL
- * @param {number} quantity - for buys, the qty of ask tokens, for sells the qty of bid tokens
- * @param {number} price - price to pay
+ * @param {string} quantity - for buys, the qty of ask tokens, for sells the qty of bid tokens
+ * @param {string} price - price to pay
  * @returns nothing - use fetchOpenOrders to retrieve details of successful but unfilled orders
  * @returns {Promise<object>} - response object from the api.transact()
 */
@@ -71,11 +72,11 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
   const bidToken = market.bid_token;
 
   const quantityText = orderSide === ORDERSIDES.SELL
-    ? `${quantity.toFixed(bidToken.precision)} ${bidToken.code}`
-    : `${quantity.toFixed(askToken.precision)} ${askToken.code}`;
+    ? `${quantity} ${bidToken.code}`
+    : `${quantity} ${askToken.code}`;
   const quantityNormalized = orderSide === ORDERSIDES.SELL
-    ? (new Decimal(quantity.toFixed(bidToken.precision)).times(bidToken.multiplier)).toString()
-    : (new Decimal(quantity.toFixed(askToken.precision)).times(askToken.multiplier)).toString();
+    ? (new BigNumber(quantity).times(bidToken.multiplier)).toString()
+    : (new BigNumber(quantity).times(askToken.multiplier)).toString();
   const priceNormalized = orderSide === ORDERSIDES.SELL
     ? Math.trunc(price * askToken.multiplier)
     : Math.trunc(price * bidToken.multiplier);
