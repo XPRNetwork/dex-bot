@@ -8,7 +8,7 @@
     "bot": "node index.js",
     "lint": "eslint . --ext .js",
     "lint:fix": "eslint . --fix --ext .js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha './test/**/*.test.js'"
   },
   "keywords": [
     "proton",
@@ -27,8 +27,11 @@
     "winston": "^3.8.2"
   },
   "devDependencies": {
+    "chai": "^4.3.7",
     "eslint": "^8.31.0",
     "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-plugin-import": "^2.26.0"
+    "eslint-plugin-import": "^2.26.0",
+    "eslint-plugin-mocha": "^10.1.0",
+    "mocha": "^10.2.0"
   }
 }

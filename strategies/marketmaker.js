@@ -22,7 +22,6 @@ const getMarketDetails = async () => {
     lowestAsk,
     market,
     price,
-    time: new Date().toISOString(),
   };
 
   return details;
@@ -37,48 +36,68 @@ const getOpenOrders = async () => {
   return orders;
 };
 
-// prepare the orders we want to have on the books
-const prepareOrders = async (marketDetails, openOrders) => {
+const createBuyOrder = (marketDetails, index) => {
   const { market } = marketDetails;
   const bigMinSpread = new BigNumber(minSpread);
-  const lowestAsk = new BigNumber(marketDetails.lowestAsk);
-  const highestBid = new BigNumber(marketDetails.highestBid);
   const lastSalePrice = new BigNumber(marketDetails.price);
 
-  const quantityStep = new BigNumber(10 / market.bid_token.multiplier);
-  const minOrderTotal = new BigNumber(market.order_min).dividedBy(market.ask_token.multiplier);
+  const lowestAsk = new BigNumber(marketDetails.lowestAsk);
+  const highestBid = new BigNumber(marketDetails.highestBid);
   const startPrice = lowestAsk.plus(highestBid).dividedBy(2);
-  const orders = [];
+  const minOrderTotal = new BigNumber(market.order_min).dividedBy(market.ask_token.multiplier);
+  const quantityStep = new BigNumber(10 / market.bid_token.multiplier);
 
+  const buyPrice = (bigMinSpread.times(0 - (index + 1)).plus(1))
+    .times(Math.min(lastSalePrice, startPrice));
+  const buyQuantity = minOrderTotal.plus(quantityStep.times(index + 1));
+  const order = {
+    orderSide: ORDERSIDES.BUY,
+    price: buyPrice.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
+    quantity: buyQuantity.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
+    symbol,
+  };
+  return order;
+};
+
+const createSellOrder = (marketDetails, index) => {
+  const { market } = marketDetails;
+  const bigMinSpread = new BigNumber(minSpread);
+  const lastSalePrice = new BigNumber(marketDetails.price);
+
+  const lowestAsk = new BigNumber(marketDetails.lowestAsk);
+  const highestBid = new BigNumber(marketDetails.highestBid);
+  const startPrice = lowestAsk.plus(highestBid).dividedBy(2);
+  const minOrderTotal = new BigNumber(market.order_min).dividedBy(market.ask_token.multiplier);
+
+  const sellPrice = (bigMinSpread.times(0 + (index + 1)).plus(1))
+    .times(Math.min(lastSalePrice, startPrice));
+  const sellQuantity = minOrderTotal.dividedBy(sellPrice);
+  const order = {
+    orderSide: ORDERSIDES.SELL,
+    price: sellPrice.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
+    quantity: sellQuantity.toFixed(market.bid_token.precision, BigNumber.ROUND_UP).toString(),
+    symbol,
+  };
+
+  return order;
+};
+
+// prepare the orders we want to have on the books
+const prepareOrders = async (marketDetails, openOrders) => {
+  const orders = [];
   let numBuys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY).length;
   let numSells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL).length;
 
   for (let index = 0; index < numPairs; index += 1) {
     // buy order
     if (numBuys < numPairs) {
-      const buyPrice = (bigMinSpread.times(0 - (index + 1)).plus(1))
-        .times(Math.min(lastSalePrice, startPrice));
-      const buyQuantity = minOrderTotal.plus(quantityStep.times(index + 1));
-      orders.push({
-        orderSide: ORDERSIDES.BUY,
-        price: buyPrice.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
-        quantity: buyQuantity.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
-        symbol,
-      });
+      orders.push(createBuyOrder(marketDetails, index));
       numBuys += 1;
     }
 
     // sell order
     if (numSells < numPairs) {
-      const sellPrice = (bigMinSpread.times(0 + (index + 1)).plus(1))
-        .times(Math.min(lastSalePrice, startPrice));
-      const sellQuantity = minOrderTotal.dividedBy(sellPrice);
-      orders.push({
-        orderSide: ORDERSIDES.SELL,
-        price: sellPrice.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
-        quantity: sellQuantity.toFixed(market.bid_token.precision, BigNumber.ROUND_UP).toString(),
-        symbol,
-      });
+      orders.push(createSellOrder(marketDetails, index));
       numSells += 1;
     }
   }
@@ -151,5 +170,12 @@ const trade = async () => {
 const strategy = {
   trade,
 };
+
+// export some internal function solely to test them
+if (process.env.NODE_ENV === 'test') {
+  strategy.internals = {
+    createBuyOrder, createSellOrder,
+  };
+}
 
 export default strategy;
