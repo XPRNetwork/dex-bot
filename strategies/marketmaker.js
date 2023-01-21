@@ -1,5 +1,5 @@
 // a basic market maker strategy
-import { BigNumber } from 'bignumber.js';
+import { BigNumber as BN } from 'bignumber.js';
 import * as dexapi from '../dexapi.js';
 import { submitLimitOrder, ORDERSIDES } from '../dexrpc.js';
 import { getConfig, getLogger } from '../utils.js';
@@ -36,24 +36,50 @@ const getOpenOrders = async () => {
   return orders;
 };
 
+/**
+ * Given a price and total cost return a quantity value. Use precision values in the bid and ask
+ * currencies, and return an adjusted total to account for losses during rounding. The adjustedTotal
+ * value is used for buy orders
+ * @param {number} price - cost to pay in the ask currency
+ * @param {number} totalCost - total cost in the ask currency
+ * @param {number} bidPrecision - precision for the bid currency
+ * @param {number} askPrecision - precision for the ask currency
+ * @returns {object} object with adjustedTotak and quantity values
+ */
+const getQuantityAndAdjustedTotal = (price, totalCost, bidPrecision, askPrecision) => {
+  const quantity = +new BN(totalCost).dividedBy(price).toFixed(bidPrecision, BN.ROUND_UP);
+  const adjustedTotal = +new BN(price).times(quantity).toFixed(askPrecision, BN.ROUND_UP);
+  return {
+    adjustedTotal,
+    quantity,
+  };
+};
+
 const createBuyOrder = (marketDetails, index) => {
   const { market } = marketDetails;
-  const bigMinSpread = new BigNumber(minSpread);
-  const lastSalePrice = new BigNumber(marketDetails.price);
+  const askPrecision = market.ask_token.precision;
+  const bidPrecision = market.bid_token.precision;
+  const bigMinSpread = new BN(minSpread);
+  const minOrder = market.order_min / market.ask_token.multiplier;
 
-  const lowestAsk = new BigNumber(marketDetails.lowestAsk);
-  const highestBid = new BigNumber(marketDetails.highestBid);
+  const lastSalePrice = new BN(marketDetails.price);
+  const lowestAsk = new BN(marketDetails.lowestAsk);
+  const highestBid = new BN(marketDetails.highestBid);
   const startPrice = lowestAsk.plus(highestBid).dividedBy(2);
-  const minOrderTotal = new BigNumber(market.order_min).dividedBy(market.ask_token.multiplier);
-  const quantityStep = new BigNumber(10 / market.bid_token.multiplier);
 
   const buyPrice = (bigMinSpread.times(0 - (index + 1)).plus(1))
     .times(Math.min(lastSalePrice, startPrice));
-  const buyQuantity = minOrderTotal.plus(quantityStep.times(index + 1));
+  const { adjustedTotal } = getQuantityAndAdjustedTotal(
+    +buyPrice,
+    minOrder,
+    bidPrecision,
+    askPrecision,
+  );
+
   const order = {
     orderSide: ORDERSIDES.BUY,
-    price: buyPrice.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
-    quantity: buyQuantity.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
+    price: +buyPrice,
+    quantity: adjustedTotal,
     symbol,
   };
   return order;
@@ -61,21 +87,29 @@ const createBuyOrder = (marketDetails, index) => {
 
 const createSellOrder = (marketDetails, index) => {
   const { market } = marketDetails;
-  const bigMinSpread = new BigNumber(minSpread);
-  const lastSalePrice = new BigNumber(marketDetails.price);
+  const askPrecision = market.ask_token.precision;
+  const bidPrecision = market.bid_token.precision;
+  const bigMinSpread = new BN(minSpread);
+  const minOrder = market.order_min / market.ask_token.multiplier;
 
-  const lowestAsk = new BigNumber(marketDetails.lowestAsk);
-  const highestBid = new BigNumber(marketDetails.highestBid);
+  const lastSalePrice = new BN(marketDetails.price);
+  const lowestAsk = new BN(marketDetails.lowestAsk);
+  const highestBid = new BN(marketDetails.highestBid);
   const startPrice = lowestAsk.plus(highestBid).dividedBy(2);
-  const minOrderTotal = new BigNumber(market.order_min).dividedBy(market.ask_token.multiplier);
 
   const sellPrice = (bigMinSpread.times(0 + (index + 1)).plus(1))
     .times(Math.min(lastSalePrice, startPrice));
-  const sellQuantity = minOrderTotal.dividedBy(sellPrice);
+  const { quantity } = getQuantityAndAdjustedTotal(
+    +sellPrice,
+    minOrder,
+    bidPrecision,
+    askPrecision,
+  );
+
   const order = {
     orderSide: ORDERSIDES.SELL,
-    price: sellPrice.toFixed(market.ask_token.precision, BigNumber.ROUND_UP).toString(),
-    quantity: sellQuantity.toFixed(market.bid_token.precision, BigNumber.ROUND_UP).toString(),
+    price: +sellPrice,
+    quantity,
     symbol,
   };
 
@@ -105,35 +139,9 @@ const prepareOrders = async (marketDetails, openOrders) => {
   return orders;
 };
 
-const isValidOrder = (order, marketDetails) => {
-  // ensure that the order will not execute if it would match to an order already on the books
-  const { highestBid, lowestAsk } = marketDetails;
-  if (order.orderSide === ORDERSIDES.SELL && order.price <= highestBid) {
-    getLogger().warn(`Not placing sell order as it would execute: ${order.price} highestBid: ${highestBid}`);
-    return false;
-  }
-  if (order.orderSide === ORDERSIDES.BUY && order.price >= lowestAsk) {
-    getLogger().warn(`Not placing buy order as it would execute: ${order.price} lowestAsk: ${highestBid}`);
-    return false;
-  }
-
-  // ensure that the order really meets the min. value
-  const market = dexapi.getMarketBySymbol(symbol);
-  const total = order.orderSide === ORDERSIDES.SELL ? order.price * order.quantity : order.quantity;
-  if (total < market.order_min / market.ask_token.multiplier) {
-    getLogger().warn(`Not placing sell order because it does not meet the minimum order requirements ${total} < ${market.order_min / market.ask_token.multiplier}`);
-    return false;
-  }
-
-  return true;
-};
-
-const placeOrders = async (orders, marketDetails) => {
+const placeOrders = async (orders) => {
   if (orders.length === 0) return;
   orders.forEach(async (order) => {
-    if (!isValidOrder(order, marketDetails)) {
-      return;
-    }
     await submitLimitOrder(order.symbol, order.orderSide, order.quantity, order.price);
   });
 };
@@ -161,7 +169,7 @@ const trade = async () => {
 
     const marketDetails = await getMarketDetails();
     const preparedOrders = await prepareOrders(marketDetails, openOrders);
-    await placeOrders(preparedOrders, marketDetails);
+    await placeOrders(preparedOrders);
   } catch (error) {
     logger.error(error.message);
   }

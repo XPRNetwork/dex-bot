@@ -64,22 +64,21 @@ export const FILLTYPES = {
  * @returns {Promise<object>} - response object from the api.transact()
 */
 export const submitLimitOrder = async (symbol, orderSide, quantity, price = undefined) => {
-  const orderSideText = orderSide === ORDERSIDES.SELL ? 'sell' : 'buy';
-  logger.info(`Attempting to place ${orderSideText} order for ${quantity} ${symbol} at ${price}`);
-
   const market = dexapi.getMarketBySymbol(symbol);
   const askToken = market.ask_token;
   const bidToken = market.bid_token;
 
+  const bnQuantity = new BigNumber(quantity);
   const quantityText = orderSide === ORDERSIDES.SELL
-    ? `${quantity} ${bidToken.code}`
-    : `${quantity} ${askToken.code}`;
+    ? `${bnQuantity.toFixed(bidToken.precision)} ${bidToken.code}`
+    : `${bnQuantity.toFixed(askToken.precision)} ${askToken.code}`;
+  const orderSideText = orderSide === ORDERSIDES.SELL ? 'sell' : 'buy';
+  logger.info(`Attempting to place ${orderSideText} order for ${quantityText} at ${price}`);
+
   const quantityNormalized = orderSide === ORDERSIDES.SELL
-    ? (new BigNumber(quantity).times(bidToken.multiplier)).toString()
-    : (new BigNumber(quantity).times(askToken.multiplier)).toString();
-  const priceNormalized = orderSide === ORDERSIDES.SELL
-    ? Math.trunc(price * askToken.multiplier)
-    : Math.trunc(price * bidToken.multiplier);
+    ? (bnQuantity.times(bidToken.multiplier)).toString()
+    : (bnQuantity.times(askToken.multiplier)).toString();
+  const priceNormalized = Math.trunc(price * askToken.multiplier);
 
   const actions = [
     {
