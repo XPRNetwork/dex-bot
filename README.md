@@ -4,9 +4,9 @@ This is code for a basic market making trading bot against the Proton DEX, https
 
 [![ESLint SAST scan workflow](https://github.com/squdgy/dexbot/actions/workflows/eslint.yml/badge.svg?event=push)](https://github.com/squdgy/dexbot/security/code-scanning)
 
-This bot works against a single market. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. This strategy is a money losing strategy with fees taken into account.
+This bot works against a single market. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. This strategy is probably a money losing strategy with fees taken into account. Use this as a reference and implement yor own trading algorithm.
 
-This has been tested with XPR_XUSDC & XPR_XMD markets.
+This has been tested on testnet with XPR_XUSDC, XPR_XMD, and XBTC_XUSDT markets. It has been tested on mainnet with XPR_XUSDC, XPR_XMD, and XBTC_XUSDC markets.
 
 ## Getting Started
 

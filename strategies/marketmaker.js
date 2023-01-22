@@ -29,6 +29,9 @@ const getMarketDetails = async () => {
 
 const getOpenOrders = async () => {
   const market = dexapi.getMarketBySymbol(symbol);
+  if (market === undefined) {
+    throw new Error(`Market ${symbol} does not exist`);
+  }
   const allOrders = await dexapi.fetchOpenOrders(username);
   const orders = allOrders.filter((order) => order.market_id === market.market_id);
   await Promise.all(orders);
