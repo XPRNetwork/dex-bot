@@ -7,12 +7,16 @@ const apiConfig = getConfig().api;
  * Generic GET request to one of the APIs
  * @param {string} root - root url for the API, ex. https://metal-dexdb.global.binfra.one/dex
  * @param {string} path - path for data, ex. /v1/markets/all
+ * @param {bool} returnData - true to return data property contents
  * @returns {Promise<object>} - json data
  */
-const fetchFromAPI = async (root, path) => {
+const fetchFromAPI = async (root, path, returnData = true) => {
   const response = await fetch(`${root}${path}`);
   const responseJson = await response.json();
-  return responseJson.data;
+  if (returnData) {
+    return responseJson.data;
+  }
+  return responseJson;
 };
 
 /**
@@ -87,7 +91,8 @@ export const fetchLatestPrice = async (symbol) => {
  * ex. {"decimals":"4","contract":"eosio.token","amount":"123.4567","currency":"XPR"}
  */
 export const fetchBalances = async (username) => {
-  const response = await fetchFromAPI(apiConfig.lightApiRoot, `/balances/proton/${username}`);
+  const chain = process.env.NODE_ENV === 'test' ? 'protontest' : 'proton';
+  const response = await fetchFromAPI(apiConfig.lightApiRoot, `/balances/${chain}/${username}`, false);
   return response.balances;
 };
 

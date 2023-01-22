@@ -2,7 +2,7 @@
   "bot" : {
     "api": {
       "apiRoot": "https://metallicus-dbapi-dev01.binfra.one/dex",
-      "lightApiRoot": "https://testnet-lightapi.eosams.xeos.me"
+      "lightApiRoot": "https://testnet-lightapi.eosams.xeos.me/api"
     },
     "rpc": {
       "endpoints" : [
