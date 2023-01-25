@@ -49,12 +49,39 @@ config/default.json has other config values you can change
       "minSpread": 0.001,
 
       // how many buy and how many sell orders to put on the books
-      "numPairs": 2,
+      "gridLevels": 2,
 
       // market to trade in
       "symbol": "XPR_XUSDC"
     },
 
+    "marketmaker": {
+      // how many buy and how many sell orders to put on the books
+      "gridLevels": 5,
+
+      // represents pairs(markets ids)
+      "pairs": [
+        {
+          / market to trade in
+          "symbol": "XPR_XUSDC",
+          // interval(price step or spread between each grid level 0.01 = 1%)
+          "gridInterval": 0.005,
+          // base for start price to place order - AVERAGE: avg of highestBid and LowestAsk, BID - gighestBid price
+          //                                       ASK: lowestAsk price, LAST: last price traded
+          "base": "AVERAGE"
+        },
+        {
+          "symbol": "XPR_XMD",
+          "gridInterval": 0.01,
+          "base": "BID"
+        },
+        {
+          "symbol": "XETH_XMD",
+          "gridInterval": 0.01,
+          "base": "LAST"
+        }
+      ]
+    },
 
     "rpc": {
 

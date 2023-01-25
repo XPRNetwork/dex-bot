@@ -56,15 +56,15 @@ export const FILLTYPES = {
 /**
  * Place a buy or sell limit order. Quantity and price are string values to
  * avoid loss of precision when placing order
- * @param {string} symbol - market symbol, ex. 'XPR_XMD'
+ * @param {string} marketSymbol - market symbol, ex. 'XPR_XMD'
  * @param {number} orderSide - 1 = BUY, 2 = SELL; use ORDERSIDES.BUY, ORDERSIDES.SELL
  * @param {string} quantity - for buys, the qty of ask tokens, for sells the qty of bid tokens
  * @param {string} price - price to pay
  * @returns nothing - use fetchOpenOrders to retrieve details of successful but unfilled orders
  * @returns {Promise<object>} - response object from the api.transact()
 */
-export const submitLimitOrder = async (symbol, orderSide, quantity, price = undefined) => {
-  const market = dexapi.getMarketBySymbol(symbol);
+export const submitLimitOrder = async (marketSymbol, orderSide, quantity, price = undefined) => {
+  const market = dexapi.getMarketBySymbol(marketSymbol);
   const askToken = market.ask_token;
   const bidToken = market.bid_token;
 
@@ -118,7 +118,7 @@ export const submitLimitOrder = async (symbol, orderSide, quantity, price = unde
       account: 'dex',
       name: 'process',
       data: {
-        q_size: 5,
+        q_size: 50,
         show_error_msg: 0,
       },
     },

@@ -6,9 +6,24 @@
     },
     "cancelOpenOrdersOnExit": false,
     "marketmaker": {
-      "minSpread": 0.001,
-      "numPairs": 5,
-      "symbol": "XPR_XUSDC"
+      "gridLevels": 5,
+      "pairs": [
+        {
+          "symbol": "XPR_XUSDC",
+          "gridInterval": 0.005,
+          "base": "AVERAGE"
+        },
+        {
+          "symbol": "XPR_XMD",
+          "gridInterval": 0.01,
+          "base": "BID"
+        },
+        {
+          "symbol": "XETH_XMD",
+          "gridInterval": 0.01,
+          "base": "LAST"
+        }
+      ]
     },
     "rpc": {
       "endpoints" : [

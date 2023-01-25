@@ -1,4 +1,5 @@
 import { getConfig } from './utils.js';
+import fetch from "node-fetch"
 
 // Contains methods for interacting with the off-chain DEX API
 const apiConfig = getConfig().api;

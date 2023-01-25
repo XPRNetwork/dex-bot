@@ -24,6 +24,7 @@
     "@proton/js": "^27.3.0",
     "bignumber.js": "^9.1.1",
     "config": "^3.3.8",
+    "node-fetch": "^3.3.0",
     "winston": "^3.8.2"
   },
   "devDependencies": {
