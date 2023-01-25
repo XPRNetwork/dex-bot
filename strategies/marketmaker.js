@@ -59,29 +59,43 @@ const getQuantityAndAdjustedTotal = (price, totalCost, bidPrecision, askPrecisio
 };
 
 const getGridInterval = (marketSymbol) => {
-  let interval = 0.01;
+  let interval;
   for (const key of Object.keys(pairs)) {
     if ( marketSymbol === pairs[key].symbol)
-    interval = pairs[key].gridInterval;
+      interval = pairs[key].gridInterval;
   }
+  if (interval === undefined) {
+    throw new Error(`GridInterval option is missing for market ${marketSymbol} in default.json`);
+  }
+
   return interval;
 }
 
 const getGridLevels = (marketSymbol) => {
-  let levels = 5;
+  let levels;
   for (const key of Object.keys(pairs)) {
     if ( marketSymbol === pairs[key].symbol)
     levels = pairs[key].gridLevels;
   }
+
+  if (levels === undefined) {
+    throw new Error(`GridLevels option is missing for market ${marketSymbol} in default.json`);
+  }
+
   return levels;
 }
 
 const getBase = (marketSymbol) => {
-  let type = 'AVERAGE';
+  let type;
   for (const key of Object.keys(pairs)) {
     if ( marketSymbol === pairs[key].symbol)
     type = pairs[key].base;
   }
+
+  if (type === undefined) {
+    throw new Error(`Base option is missing for market ${marketSymbol} in default.json`);
+  }
+
   return type;
 }
 
@@ -109,6 +123,7 @@ const createBuyOrder = (marketSymbol, marketDetails, index) => {
     case 'LAST':
       startPrice = lastSalePrice;
       break;
+    case 'AVERAGE':
     default:
       startPrice = avgPrice;
       break;

@@ -1,41 +1,37 @@
 {
   "bot" : {
-    "api": {
-      "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
-      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
-    },
+    "tradeIntervalMS": "10000",
     "cancelOpenOrdersOnExit": false,
     "marketmaker": {
       "pairs": [
         {
           "symbol": "XPR_XUSDC",
-          "gridLevels": 5,
-          "gridInterval": 0.005,
+          "gridLevels": 4,
+          "gridInterval": 0.02,
           "base": "AVERAGE"
         },
         {
           "symbol": "XPR_XMD",
-          "gridLevels": 4,
-          "gridInterval": 0.01,
-          "base": "BID"
+          "gridLevels": 3,
+          "gridInterval": 0.015,
+          "base": "LAST"
         },
         {
           "symbol": "XETH_XMD",
-          "gridLevels": 3,
+          "gridLevels": 2,
           "gridInterval": 0.01,
           "base": "LAST"
         }
       ]
     },
     "rpc": {
+      "privateKeyPermission": "active",
       "endpoints" : [
         "https://proton.greymass.com",
         "https://proton.eoscafeblock.com"
       ],
-      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu",
-      "privateKeyPermission": "active"
-    },
-    "tradeIntervalMS": "10000",
-    "username": "user1"
+      "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
+      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+    }
   }
 }

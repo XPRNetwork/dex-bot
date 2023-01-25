@@ -32,14 +32,8 @@ config/default.json has other config values you can change
 ```
 {
   "bot" : {
-    "api": {
-
-      // api for readonly dex api
-      "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
-
-      // api for readonly proton api
-      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
-    },
+    // how often to attempt trade
+    "tradeIntervalMS": "5000",
 
     // set to true in order to cancel all open orders when the bot shuts down
     "cancelOpenOrdersOnExit": false,
@@ -71,6 +65,8 @@ config/default.json has other config values you can change
       ]
     },
 
+    // permissions on the key ex. active or owner
+    "privateKeyPermission": "active"
     "rpc": {
 
       // endpoints for RPC API
@@ -79,18 +75,12 @@ config/default.json has other config values you can change
         "https://proton.eoscafeblock.com"
       ],
 
-      // private key associated with username
-      "privateKey": "PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu",
+      // api for readonly dex api
+      "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
 
-      // permissions on the key ex. active or owner
-      "privateKeyPermission": "active"
-    },
-
-    // how often to attempt trade
-    "tradeIntervalMS": "5000",
-
-    // username of trader AND API account
-    "username": "user1"
+      // api for readonly proton api
+      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+    }
   }
 }
 ```

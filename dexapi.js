@@ -2,7 +2,8 @@ import { getConfig } from './utils.js';
 import fetch from "node-fetch"
 
 // Contains methods for interacting with the off-chain DEX API
-const apiConfig = getConfig().api;
+const apiRoot = getConfig().rpc.apiRoot;
+const lightApiRoot = getConfig().rpc.lightApiRoot;
 
 /**
  * Generic GET request to one of the APIs
@@ -25,7 +26,7 @@ const fetchFromAPI = async (root, path, returnData = true) => {
  * @returns {Promise<array>} - list of all markets available on ProtonDEX
  */
 export const fetchMarkets = async () => {
-  const marketData = await fetchFromAPI(apiConfig.apiRoot, '/v1/markets/all');
+  const marketData = await fetchFromAPI(apiRoot, '/v1/markets/all');
   return marketData;
 };
 
@@ -36,8 +37,8 @@ export const fetchMarkets = async () => {
  * @param {number} step - controls aggregation by price; ex. 0.01, 0.1, 1, 10, 100
  * @returns {Promise<object>} - asks and bids for the market
  */
-export const fetchOrderBook = async (symbol, limit = 100, step = 1000) => {
-  const orderBook = await fetchFromAPI(apiConfig.apiRoot, `/v1/orders/depth?symbol=${symbol}&limit=${limit}&step=${step}`);
+export const fetchOrderBook = async (symbol, limit = 100, step = 100000) => {
+  const orderBook = await fetchFromAPI(apiRoot, `/v1/orders/depth?symbol=${symbol}&limit=${limit}&step=${step}`);
   return orderBook;
 };
 
@@ -47,7 +48,7 @@ export const fetchOrderBook = async (symbol, limit = 100, step = 1000) => {
  * @returns  {Promise<array>} - list of all open orders
  */
 export const fetchOpenOrders = async (username) => {
-  const openOrders = await fetchFromAPI(apiConfig.apiRoot, `/v1/orders/open?limit=100&offset=0&account=${username}`);
+  const openOrders = await fetchFromAPI(apiRoot, `/v1/orders/open?limit=100&offset=0&account=${username}`);
   return openOrders;
 };
 
@@ -59,7 +60,7 @@ export const fetchOpenOrders = async (username) => {
  * @returns {Promise<array>} - returns an array of orders, most recent first
  */
 export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
-  const orderHistory = await fetchFromAPI(apiConfig.apiRoot, `/v1/orders/history?limit=${limit}&offset=${offset}&account=${username}`);
+  const orderHistory = await fetchFromAPI(apiRoot, `/v1/orders/history?limit=${limit}&offset=${offset}&account=${username}`);
   return orderHistory;
 };
 
@@ -71,7 +72,7 @@ export const fetchOrderHistory = async (username, limit = 100, offset = 0) => {
  * @returns a list of recent trades
  */
 export const fetchTrades = async (symbol, count = 100, offset = 0) => {
-  const response = await fetchFromAPI(apiConfig.apiRoot, `/v1/trades/recent?symbol=${symbol}&limit=${count}&offset=${offset}`);
+  const response = await fetchFromAPI(apiRoot, `/v1/trades/recent?symbol=${symbol}&limit=${count}&offset=${offset}`);
   return response;
 };
 
@@ -93,7 +94,7 @@ export const fetchLatestPrice = async (symbol) => {
  */
 export const fetchBalances = async (username) => {
   const chain = process.env.NODE_ENV === 'test' ? 'protontest' : 'proton';
-  const response = await fetchFromAPI(apiConfig.lightApiRoot, `/balances/${chain}/${username}`, false);
+  const response = await fetchFromAPI(lightApiRoot, `/balances/${chain}/${username}`, false);
   return response.balances;
 };
 
