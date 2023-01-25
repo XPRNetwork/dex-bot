@@ -8,7 +8,7 @@ import { getConfig, getLogger } from '../utils.js';
 const config = getConfig();
 const { username } = config;
 const mmConfig = config.get('marketmaker');
-const {gridLevels, pairs } = mmConfig;
+const {pairs } = mmConfig;
 
 const getMarketDetails = async (marketSymbol) => {
   const market = dexapi.getMarketBySymbol(marketSymbol);
@@ -65,6 +65,15 @@ const getGridInterval = (marketSymbol) => {
     interval = pairs[key].gridInterval;
   }
   return interval;
+}
+
+const getGridLevels = (marketSymbol) => {
+  let levels = 5;
+  for (const key of Object.keys(pairs)) {
+    if ( marketSymbol === pairs[key].symbol)
+    levels = pairs[key].gridLevels;
+  }
+  return levels;
 }
 
 const getBase = (marketSymbol) => {
@@ -178,15 +187,16 @@ const prepareOrders = async (marketSymbol, marketDetails, openOrders) => {
   let numBuys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY).length;
   let numSells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL).length;
 
-  for (let index = 0; index < gridLevels; index += 1) {
+  const levels = new BN(getGridLevels(marketSymbol));
+  for (let index = 0; index < levels; index += 1) {
     // buy order
-    if (numBuys < gridLevels) {
+    if (numBuys < levels) {
       orders.push(createBuyOrder(marketSymbol, marketDetails, index));
       numBuys += 1;
     }
 
     // sell order
-    if (numSells < gridLevels) {
+    if (numSells < levels) {
       orders.push(createSellOrder(marketSymbol, marketDetails, index));
       numSells += 1;
     }
@@ -217,6 +227,7 @@ const trade = async () => {
       const openOrders = await getOpenOrders(pairs[i].symbol);
 
       // any orders to place?
+      const gridLevels = new BN(getGridLevels(pairs[i].symbol));
       const buys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY);
       const sells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL);
       if (buys.length >= gridLevels && sells.length >= gridLevels) {

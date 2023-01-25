@@ -6,20 +6,22 @@
     },
     "cancelOpenOrdersOnExit": false,
     "marketmaker": {
-      "gridLevels": 5,
       "pairs": [
         {
           "symbol": "XPR_XUSDC",
+          "gridLevels": 5,
           "gridInterval": 0.005,
           "base": "AVERAGE"
         },
         {
           "symbol": "XPR_XMD",
+          "gridLevels": 4,
           "gridInterval": 0.01,
           "base": "BID"
         },
         {
           "symbol": "XETH_XMD",
+          "gridLevels": 3,
           "gridInterval": 0.01,
           "base": "LAST"
         }
