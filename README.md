@@ -1,14 +1,14 @@
 # dexbot
 
-This is code for a basic market making trading bot against the Proton DEX, https://protondex.com/.
+This is the code for a grid trading bot against the Proton DEX, https://protondex.com/.
 
 [![ESLint SAST scan workflow](https://github.com/squdgy/dexbot/actions/workflows/eslint.yml/badge.svg?event=push)](https://github.com/squdgy/dexbot/security/code-scanning)
 
 ![Tests](https://github.com/squdgy/dexbot/actions/workflows/test.js.yml/badge.svg?event=push)
 
-This bot works against a single market. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. This strategy is probably a money losing strategy with fees taken into account. Use this as a reference and implement yor own trading algorithm.
+This bot works against a multiple markets to place orders on grid category. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. Grid trading doesn’t care about which way the market’s going. It would be a profitable strategy works best in ranging markets. The strategy places a ladder of sells at regular intervals above base price, and another ladder of buys beneath it. Use this as a reference and implement yor own trading algorithm.
 
-This has been tested on testnet with XPR_XUSDC, XPR_XMD, and XBTC_XUSDT markets. It has been tested on mainnet with XPR_XUSDC, XPR_XMD, and XBTC_XUSDC markets.
+This has been tested on mainnet with pairs like XPR_XUSDC, XPR_XMD, and XETH_XMD etc markets. A new market can always be added under pairs section and restart bot to take effect.
 
 ## Getting Started
 
@@ -48,17 +48,19 @@ config/default.json has other config values you can change
           "gridLevels": 5,
           // interval(price step or spread between each grid level 0.01 = 1%)
           "gridInterval": 0.005,
-          // base for start price to place order - AVERAGE: avg of highestBid and LowestAsk, BID - gighestBid price
+          // base for start price to place order - AVERAGE: avg of highestBid and lowestAsk, BID: highestBid price
           //                                       ASK: lowestAsk price, LAST: last price traded
           "base": "AVERAGE"
         },
         {
           "symbol": "XPR_XMD",
+          gridLevels": 3,
           "gridInterval": 0.01,
           "base": "BID"
         },
         {
           "symbol": "XETH_XMD",
+          gridLevels": 2,
           "gridInterval": 0.01,
           "base": "LAST"
         }
@@ -149,4 +151,4 @@ config/default.json has other config values you can change
 - instructions on finding your private key: https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
 - actions available on the DEX contract: https://www.docs.protondex.com/developers-dex/actions
 - general documentation on interacting with proton contracts: https://docs.protonchain.com/built-with-proton.html#sdks
-
+- base version imported from https://github.com/squdgy/dexbot
