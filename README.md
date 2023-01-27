@@ -50,19 +50,24 @@ config/default.json has other config values you can change
           "gridInterval": 0.005,
           // base for start price to place order - AVERAGE: avg of highestBid and lowestAsk, BID: highestBid price
           //                                       ASK: lowestAsk price, LAST: last price traded
-          "base": "AVERAGE"
+          "base": "AVERAGE",
+          // OrderSide represents whether to place gird orders for BOTH(BUY and SELL) or BUY or SELL
+          // Options are "BOTH", "BUY", "SELL"
+          "orderSide": "BOTH"
         },
         {
           "symbol": "XPR_XMD",
           gridLevels": 3,
           "gridInterval": 0.01,
           "base": "BID"
+          "orderSide": "BUY"
         },
         {
           "symbol": "XETH_XMD",
           gridLevels": 2,
           "gridInterval": 0.01,
           "base": "LAST"
+          "orderSide": "SELL"
         }
       ]
     },
