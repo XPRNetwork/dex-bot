@@ -99,6 +99,20 @@ const getBase = (marketSymbol) => {
   return type;
 }
 
+const getGridOrderSide = (marketSymbol) => {
+  let side;
+  for (const key of Object.keys(pairs)) {
+    if ( marketSymbol === pairs[key].symbol)
+      side = pairs[key].orderSide;
+  }
+
+  if (side === undefined) {
+    throw new Error(`OrderSide option is missing for market ${marketSymbol} in default.json`);
+  }
+
+  return side;
+}
+
 const createBuyOrder = (marketSymbol, marketDetails, index) => {
   const { market } = marketDetails;
   const askPrecision = market.ask_token.precision;
@@ -203,15 +217,17 @@ const prepareOrders = async (marketSymbol, marketDetails, openOrders) => {
   let numSells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL).length;
 
   const levels = new BN(getGridLevels(marketSymbol));
+  let side = getGridOrderSide(marketSymbol);
+
   for (let index = 0; index < levels; index += 1) {
     // buy order
-    if (numBuys < levels) {
+    if ((numSells < levels) && ((side === "BOTH") || (side === "BUY"))) {
       orders.push(createBuyOrder(marketSymbol, marketDetails, index));
       numBuys += 1;
     }
 
     // sell order
-    if (numSells < levels) {
+    if ((numSells < levels) && ((side === "BOTH") || (side === "SELL"))) {
       orders.push(createSellOrder(marketSymbol, marketDetails, index));
       numSells += 1;
     }
