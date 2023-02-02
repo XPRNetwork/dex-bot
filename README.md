@@ -1,6 +1,6 @@
 # dexbot
 
-This is the code for a grid trading bot against the Proton DEX, https://protondex.com/.
+This is the code for both market maker and grid trading bot strategies against the Proton DEX, https://protondex.com/.
 
 [![ESLint SAST scan workflow](https://github.com/squdgy/dexbot/actions/workflows/eslint.yml/badge.svg?event=push)](https://github.com/squdgy/dexbot/security/code-scanning)
 
@@ -38,23 +38,22 @@ config/default.json has other config values you can change
     // set to true in order to cancel all open orders when the bot shuts down
     "cancelOpenOrdersOnExit": false,
 
+    // strategy to be applied, marketmaker or gridbot
+    "strategy": "gridBot",
     "marketmaker": {
-      // represents pairs(markets ids)
-      "pairs": [
-        {
-          / market to trade in
-          "symbol": "XPR_XUSDC",
-          // how many buy and how many sell orders to put on the books
-          "gridLevels": 5,
-          // interval(price step or spread between each grid level 0.01 = 1%)
-          "gridInterval": 0.005,
-          // base for start price to place order - AVERAGE: avg of highestBid and lowestAsk, BID: highestBid price
+      // represents pairs(markets ids) for the market maker strategy
+      "mmpairs": [
+          // symbol: market to trade in
+
+          // gridLevels: how many buy and how many sell orders to put on the books
+
+          // gridInterval: interval(price step or spread between each grid level 0.01 = 1%)
+
+          // base: base for start price to place order - AVERAGE: avg of highestBid and lowestAsk, BID: highestBid price
           //                                       ASK: lowestAsk price, LAST: last price traded
-          "base": "AVERAGE",
-          // OrderSide represents whether to place gird orders for BOTH(BUY and SELL) or BUY or SELL
+
+          // orderSide: orderSide represents whether to place gird orders for BOTH(BUY and SELL) or BUY or SELL
           // Options are "BOTH", "BUY", "SELL"
-          "orderSide": "BOTH"
-        },
         {
           "symbol": "XPR_XMD",
           gridLevels": 3,
@@ -71,7 +70,30 @@ config/default.json has other config values you can change
         }
       ]
     },
-
+    // represents pairs(markets ids) for the gridbot strategy
+   "gridBot": {
+      "gbpairs": [
+        // symbol: market to trade in
+        // upperLimit: represents price - upper limit of the trading range
+        // lowerLimit: represents price - upper limit of the trading range
+        // gridLevels: number of orders to keep
+        // pricePerGrid: cost per each grid
+        {
+          "symbol": "XBTC_XMD",
+          "upperLimit": 2450000000000,
+          "lowerLimit": 2350000000000,
+          "gridLevels": 10,
+          "pricePerGrid": 2000000
+        },
+        {
+          "symbol": "XPR_XMD",
+          "upperLimit": 22,
+          "lowerLimit": 20,
+          "gridLevels": 10,
+          "pricePerGrid": 2000000
+        }
+      ]
+    },
     // permissions on the key ex. active or owner
     "privateKeyPermission": "active"
     "rpc": {

@@ -73,7 +73,7 @@ export const submitLimitOrder = async (marketSymbol, orderSide, quantity, price 
     ? `${bnQuantity.toFixed(bidToken.precision)} ${bidToken.code}`
     : `${bnQuantity.toFixed(askToken.precision)} ${askToken.code}`;
   const orderSideText = orderSide === ORDERSIDES.SELL ? 'sell' : 'buy';
-  logger.info(`Attempting to place ${orderSideText} order for ${quantityText} at ${price}`);
+  logger.info(`Placing ${orderSideText} order for ${quantityText} at ${price}`);
 
   const quantityNormalized = orderSide === ORDERSIDES.SELL
     ? (bnQuantity.times(bidToken.multiplier)).toString()

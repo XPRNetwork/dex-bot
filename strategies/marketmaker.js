@@ -7,8 +7,10 @@ import { getConfig, getLogger } from '../utils.js';
 // Trading config
 const config = getConfig();
 const { username } = config;
-const mmConfig = config.get('marketmaker');
-const {pairs } = mmConfig;
+const { mmpairs } = config.get('marketMaker');
+const { gbpairs } = config.get('gridBot');
+
+const logger = getLogger();
 
 const getMarketDetails = async (marketSymbol) => {
   const market = dexapi.getMarketBySymbol(marketSymbol);
@@ -60,9 +62,9 @@ const getQuantityAndAdjustedTotal = (price, totalCost, bidPrecision, askPrecisio
 
 const getGridInterval = (marketSymbol) => {
   let interval;
-  for (const key of Object.keys(pairs)) {
-    if ( marketSymbol === pairs[key].symbol)
-      interval = pairs[key].gridInterval;
+  for (const key of Object.keys(mmpairs)) {
+    if ( marketSymbol === mmpairs[key].symbol)
+      interval = mmpairs[key].gridInterval;
   }
   if (interval === undefined) {
     throw new Error(`GridInterval option is missing for market ${marketSymbol} in default.json`);
@@ -73,9 +75,9 @@ const getGridInterval = (marketSymbol) => {
 
 const getGridLevels = (marketSymbol) => {
   let levels;
-  for (const key of Object.keys(pairs)) {
-    if ( marketSymbol === pairs[key].symbol)
-    levels = pairs[key].gridLevels;
+  for (const key of Object.keys(mmpairs)) {
+    if ( marketSymbol === mmpairs[key].symbol)
+    levels = mmpairs[key].gridLevels;
   }
 
   if (levels === undefined) {
@@ -87,9 +89,9 @@ const getGridLevels = (marketSymbol) => {
 
 const getBase = (marketSymbol) => {
   let type;
-  for (const key of Object.keys(pairs)) {
-    if ( marketSymbol === pairs[key].symbol)
-    type = pairs[key].base;
+  for (const key of Object.keys(mmpairs)) {
+    if ( marketSymbol === mmpairs[key].symbol)
+    type = mmpairs[key].base;
   }
 
   if (type === undefined) {
@@ -101,9 +103,9 @@ const getBase = (marketSymbol) => {
 
 const getGridOrderSide = (marketSymbol) => {
   let side;
-  for (const key of Object.keys(pairs)) {
-    if ( marketSymbol === pairs[key].symbol)
-      side = pairs[key].orderSide;
+  for (const key of Object.keys(mmpairs)) {
+    if ( marketSymbol === mmpairs[key].symbol)
+      side = mmpairs[key].orderSide;
   }
 
   if (side === undefined) {
@@ -250,24 +252,23 @@ const placeOrders = async (orders) => {
  * The orders should be maker orders.
  */
 const trade = async () => {
-  for(let i = 0; i < pairs.length; i+=1) {
-    const logger = getLogger();
-    logger.info(`Executing ${pairs[i].symbol} market maker trades on account ${username}`);
+  for(let i = 0; i < mmpairs.length; i+=1) {
+    logger.info(`Executing ${mmpairs[i].symbol} market maker trades on account ${username}`);
 
     try {
-      const openOrders = await getOpenOrders(pairs[i].symbol);
+      const openOrders = await getOpenOrders(mmpairs[i].symbol);
 
       // any orders to place?
-      const gridLevels = new BN(getGridLevels(pairs[i].symbol));
+      const gridLevels = new BN(getGridLevels(mmpairs[i].symbol));
       const buys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY);
       const sells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL);
       if (buys.length >= gridLevels && sells.length >= gridLevels) {
-        logger.info(`nothing to do - we have enough orders on the books for ${pairs[i].symbol}`);
+        logger.info(`nothing to do - we have enough orders on the books for ${mmpairs[i].symbol}`);
         return;
       }
 
-      const marketDetails = await getMarketDetails(pairs[i].symbol);
-      const preparedOrders = await prepareOrders(pairs[i].symbol, marketDetails, openOrders);
+      const marketDetails = await getMarketDetails(mmpairs[i].symbol);
+      const preparedOrders = await prepareOrders(mmpairs[i].symbol, marketDetails, openOrders);
       await placeOrders(preparedOrders);
     } catch (error) {
       logger.error(error.message);

@@ -2,6 +2,7 @@ import { getConfig, getLogger } from './utils.js';
 import * as dexapi from './dexapi.js';
 import * as dexrpc from './dexrpc.js';
 import strategy from './strategies/marketmaker.js';
+import gridStrategy from './strategies/gridbot.js';
 
 /**
  * This is where we call the trading strategy.
@@ -9,6 +10,14 @@ import strategy from './strategies/marketmaker.js';
  */
 const trade = async () => {
   await strategy.trade();
+};
+
+/**
+ * This is where we call the trading strategy.
+ * @returns {Promise<void>} - doesn't return anything
+ */
+ const gridBot = async () => {
+  await gridStrategy.gridBot();
 };
 
 /**
@@ -24,7 +33,12 @@ const main = async () => {
     // attempt to trade every n milliseconds
     const tradeInterval = setInterval(async () => {
       try {
-        await trade();
+        if (config.strategy === "marketMaker") {
+          await trade();
+        }
+        else if(config.strategy === "gridBot") {
+          await gridBot();
+        }
       } catch (error) {
         logger.error(error.message);
       }

@@ -1,29 +1,48 @@
 {
   "bot" : {
-    "tradeIntervalMS": "10000",
+    "tradeIntervalMS": "2000",
     "cancelOpenOrdersOnExit": true,
-    "marketmaker": {
-      "pairs": [
+    "strategy": "gridBot",
+    "marketMaker": {
+      "mmpairs": [
         {
           "symbol": "XBTC_XMD",
-          "gridLevels": 20,
-          "gridInterval": 0.001,
+          "gridLevels": 50,
+          "gridInterval": 0.00001,
           "base": "AVERAGE",
-          "orderSide": "BOTH"
+          "orderSide": "SELL"
         },
         {
           "symbol": "XPR_XMD",
-          "gridLevels": 10,
+          "gridLevels": 2,
           "gridInterval": 0.001,
           "base": "LAST",
-          "orderSide": "SELL"
+          "orderSide": "BOTH"
         },
         {
           "symbol": "XETH_XMD",
           "gridLevels": 4,
           "gridInterval": 0.01,
           "base": "LAST",
-          "orderSide": "BUY"
+          "orderSide": "BOTH"
+        }
+      ]
+    },
+    "gridBot": {
+      "gbpairs": [
+        {
+          "symbol": "XBTC_XMD",
+          "upperLimit": 2450000000000,
+          "lowerLimit": 2350000000000,
+          "gridLevels": 10,
+          "pricePerGrid": 2000000
+        },
+        {
+          "symbol": "XPR_XMD",
+          "upperLimit": 22,
+          "lowerLimit": 20,
+          "gridLevels": 10,
+          "pricePerGrid": 2000000
         }
       ]
     },
