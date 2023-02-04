@@ -8,7 +8,7 @@ import { getConfig, getLogger } from '../utils.js';
 const config = getConfig();
 const { username } = config;
 const { gbpairs } = config.get('gridBot');
-
+let oldOrders = [];
 const logger = getLogger();
 
 const getMarketDetails = async (marketSymbol) => {
@@ -51,8 +51,8 @@ const getOpenOrders = async (marketSymbol) => {
  * @returns {object} object with adjustedTotak and quantity values
  */
 const getQuantityAndAdjustedTotal = (price, totalCost, bidPrecision, askPrecision) => {
-  const quantity = +new BN(totalCost/10 ** askPrecision).dividedBy(price).toFixed(bidPrecision, BN.ROUND_UP);
-  const adjustedTotal = +new BN(price).times(quantity).toFixed(askPrecision, BN.ROUND_UP);
+  const quantity = +new BN(totalCost/10 ** askPrecision).dividedBy(price).toFixed(bidPrecision);
+  const adjustedTotal = +new BN(price).times(quantity).toFixed(askPrecision);
   return {
     adjustedTotal,
     quantity,
@@ -100,58 +100,87 @@ const placeOrders = async (orders) => {
 
   for(let i = 0; i < pairs.length; i+=1) {
     try {
-      const orders = [];
       const marketSymbol = pairs[i].symbol;
       const marketDetails = await getMarketDetails(marketSymbol);
       const { market } = marketDetails;
       const gridLevels = pairs[i].gridLevels;
       const bidPrecision = market.bid_token.precision;
       const askPrecision = market.ask_token.precision;
-      const lastSalePrice = new BN(marketDetails.price).toFixed(askPrecision, BN.ROUND_UP);
+      const lastSalePrice = new BN(marketDetails.price).toFixed(askPrecision);
       const openOrders = await getOpenOrders(marketSymbol);
       const gridSize = new BN((pairs[i].upperLimit - pairs[i].lowerLimit) / gridLevels);
+      const gridPrice = new BN(gridSize/10 ** bidPrecision).toFixed(askPrecision);
+      let latestOrders = [];
 
-      for(let index = 0; index <= gridLevels; index+=1) {
-        const price = new BN((pairs[i].upperLimit - (index * gridSize))/10 ** bidPrecision).toFixed(askPrecision, BN.ROUND_UP);
-        let placeBuyOrder = true, placeSellOrder = true;
-        // Loop through and decide whehter to place order or not based on price criteria
-        openOrders.forEach(async (order) => {
-          const oldPrice = new BN(order.price).toFixed(askPrecision, BN.ROUND_UP);
-          if(oldPrice === price && order.order_side === ORDERSIDES.BUY) {
-            placeBuyOrder = false;
-          }
-          if(oldPrice === price && order.order_side === ORDERSIDES.SELL) {
-            placeSellOrder = false;
-          }
-        });
-
-        const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(+price, pairs[i].pricePerGrid, bidPrecision, askPrecision,);
-        const thresholdValue = new BN(gridSize/10 ** bidPrecision).toFixed(askPrecision);
-        const validOrder = new BN(Math.abs(price - lastSalePrice)).isGreaterThanOrEqualTo(thresholdValue);
- 
-        // Prepare oreders into a list
-        if(validOrder && (openOrders.length < gridLevels)) {
-          if(price > lastSalePrice && placeSellOrder) {
-            const order = {
-              orderSide: ORDERSIDES.SELL,
-              price: +price,
-              quantity: quantity,
-              marketSymbol,
-            };
-            orders.push(order);
-          }
-          else if(price < lastSalePrice && placeBuyOrder) {
-            const order = {
-              orderSide: ORDERSIDES.BUY,
-              price: +price,
-              quantity: adjustedTotal,
-              marketSymbol,
-            };
-            orders.push(order);
+      if(!oldOrders.length) {
+        // Place orders on bot initialization
+        for(let index = 0; index <= gridLevels; index+=1) {
+          const price = new BN((pairs[i].upperLimit - (index * gridSize))/10 ** bidPrecision).toFixed(askPrecision);
+          const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(+price, pairs[i].pricePerGrid, bidPrecision, askPrecision,);
+          const validOrder = new BN(Math.abs(price - lastSalePrice)).isGreaterThanOrEqualTo(gridPrice);
+          // Prepare orders and push into a list
+          if(validOrder) {
+            if(price > lastSalePrice) {
+              const order = {
+                orderSide: ORDERSIDES.SELL,
+                price: +price,
+                quantity: quantity,
+                marketSymbol,
+              };
+              oldOrders.push(order);
+            }
+            else if(price < lastSalePrice) {
+              const order = {
+                orderSide: ORDERSIDES.BUY,
+                price: +price,
+                quantity: adjustedTotal,
+                marketSymbol,
+              };
+              oldOrders.push(order);
+            }
           }
         }
+        await placeOrders(oldOrders); 
       }
-      await placeOrders(orders);
+      else if(openOrders.length > 0) {
+        // compare opend orders with old orders and placce counter orders for the executed orders 
+        let currentOrders = [];
+        for (var j = 0; j < oldOrders.length; j++) {
+          const newOrder = openOrders.find(openOrders => openOrders.price === oldOrders[j].price)
+          if(newOrder) {
+            currentOrders.push({orderSide: oldOrders[j].orderSide, price: oldOrders[j].price, quantity: oldOrders[j].quantity, marketSymbol});
+          }
+          else {
+            const oldPrice = new BN(oldOrders[j].price).toFixed(askPrecision);
+            const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(oldPrice, pairs[i].pricePerGrid, bidPrecision, askPrecision);
+            if (oldOrders[j].orderSide === ORDERSIDES.BUY) {
+              // Place a counter sell order for the executed buy order
+              const sellPrice = new BN(oldPrice).plus(gridPrice).toFixed(askPrecision);
+              const order = {
+                orderSide: ORDERSIDES.SELL,
+                price: +sellPrice,
+                quantity: quantity,
+                marketSymbol,
+              };
+              latestOrders.push(order);
+            } else if (oldOrders[j].orderSide === ORDERSIDES.SELL) {
+              // Place a counter buy order for the executed sell order
+              const buyPrice = new BN(oldPrice).minus(gridPrice).toFixed(askPrecision);;
+              const order = {
+                orderSide: ORDERSIDES.BUY,
+                price: +buyPrice,
+                quantity: adjustedTotal,
+                marketSymbol,
+              };
+              latestOrders.push(order);
+            }
+          }
+        }
+        await placeOrders(latestOrders);
+        currentOrders.push.apply(currentOrders, latestOrders);
+        // Update old orders for next round of inspection
+        oldOrders = currentOrders;
+      }
     } catch (error) {
       logger.error(error.message);
     }
