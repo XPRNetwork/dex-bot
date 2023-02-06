@@ -154,6 +154,10 @@ export const cancelOrder = async (orderId) => {
 */
 export const cancelAllOrders = async () => {
   const orders = await dexapi.fetchOpenOrders(username);
+  if(!orders.length) {
+    console.log(`No orders to cancel)`);
+    return;
+  }
   logger.info(`Canceling all (${orders.length}) orders`);
   const actions = orders.map((order) => createCancelAction(order.order_id));
   const response = await transact(actions);

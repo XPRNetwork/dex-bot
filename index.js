@@ -29,6 +29,7 @@ const main = async () => {
   const logger = getLogger();
 
   await dexapi.initialize();
+  await gridStrategy.initializeOrders();
   try {
     // attempt to trade every n milliseconds
     const tradeInterval = setInterval(async () => {

@@ -8,8 +8,16 @@ import { getConfig, getLogger } from '../utils.js';
 const config = getConfig();
 const { username } = config;
 const { gbpairs } = config.get('gridBot');
-let oldOrders = [];
 const logger = getLogger();
+let oldOrders = [];
+let pairs = [];
+
+const initializeOrders = async() => {
+  pairs = await parseEachPairConfig();
+  for(var size = 0; size < pairs.length; size++) {
+    oldOrders[size] = [];
+  }
+};
 
 const getMarketDetails = async (marketSymbol) => {
   const market = dexapi.getMarketBySymbol(marketSymbol);
@@ -80,25 +88,48 @@ const parseEachPairConfig = () => {
     });
   }
     return pairs;
-  }
+};
+
+const getHighestBid = async (orders) => {
+  const buyOrders = orders.filter((order) => order.orderSide === ORDERSIDES.BUY);
+  if (buyOrders.length === 0) return;
+  
+  buyOrders.sort(function(orderA, orderB){
+    if(BN(orderA.price) > BN(orderB.price)) return -1;
+    if(BN(orderA.price) < BN(orderB.price)) return 1;
+  });
+
+  const highestBid = new BN(buyOrders[0].price);
+  return highestBid;
+};
+
+const getLowestAsk = async (orders) => {
+  const sellOrders = orders.filter((order) => order.orderSide === ORDERSIDES.SELL);
+  if (sellOrders.length === 0) return;
+
+  sellOrders.sort(function(orderA, orderB){
+    if(BN(orderA.price) > BN(orderB.price)) return 1;
+    if(BN(orderA.price) < BN(orderB.price)) return -1;
+  });
+
+  const lowestAsk = new BN(sellOrders[0].price);
+  return lowestAsk;
+};
 
 const placeOrders = async (orders) => {
   if (orders.length === 0) return;
-  orders.forEach(async (order) => {
-    await submitLimitOrder(order.marketSymbol, order.orderSide, order.quantity, order.price);
-  });
+  for (const order of orders) {
+    submitLimitOrder(order.marketSymbol, order.orderSide, order.quantity, order.price);
+  };
 };
 
 /**
  * Grid Trading Bot Strategy
  * Grid Trading Bots are programs that allow users to automatically buy low and sell high within a pre-set price range.
- * The number of orders is determined by config value gridLevels, see config/default.json
- * The orders should be maker orders and with-in the limits mentioned in parameters
+ * The number of orders is determined by config values like limits, gridLevels, refer config/default.json
  */
  const gridBot = async () => {
-  const pairs = await parseEachPairConfig();
-
-  for(let i = 0; i < pairs.length; i+=1) {
+  for(var i = 0; i < pairs.length; i++) {
     try {
       const marketSymbol = pairs[i].symbol;
       const marketDetails = await getMarketDetails(marketSymbol);
@@ -112,7 +143,7 @@ const placeOrders = async (orders) => {
       const gridPrice = new BN(gridSize/10 ** bidPrecision).toFixed(askPrecision);
       let latestOrders = [];
 
-      if(!oldOrders.length) {
+      if(!oldOrders[i].length) {
         // Place orders on bot initialization
         for(let index = 0; index <= gridLevels; index+=1) {
           const price = new BN((pairs[i].upperLimit - (index * gridSize))/10 ** bidPrecision).toFixed(askPrecision);
@@ -127,7 +158,7 @@ const placeOrders = async (orders) => {
                 quantity: quantity,
                 marketSymbol,
               };
-              oldOrders.push(order);
+              oldOrders[i].push(order);
             }
             else if(price < lastSalePrice) {
               const order = {
@@ -136,26 +167,24 @@ const placeOrders = async (orders) => {
                 quantity: adjustedTotal,
                 marketSymbol,
               };
-              oldOrders.push(order);
+              oldOrders[i].push(order);
             }
           }
         }
-        await placeOrders(oldOrders); 
+        await placeOrders(oldOrders[i]); 
       }
       else if(openOrders.length > 0) {
-        // compare opend orders with old orders and placce counter orders for the executed orders 
-        let currentOrders = [];
-        for (var j = 0; j < oldOrders.length; j++) {
-          const newOrder = openOrders.find(openOrders => openOrders.price === oldOrders[j].price)
-          if(newOrder) {
-            currentOrders.push({orderSide: oldOrders[j].orderSide, price: oldOrders[j].price, quantity: oldOrders[j].quantity, marketSymbol});
-          }
-          else {
-            const oldPrice = new BN(oldOrders[j].price).toFixed(askPrecision);
-            const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(oldPrice, pairs[i].pricePerGrid, bidPrecision, askPrecision);
-            if (oldOrders[j].orderSide === ORDERSIDES.BUY) {
+        // compare open orders with old orders and placce counter orders for the executed orders 
+        let currentOrders = openOrders.map(order => ({orderSide: order.order_side, price: order.price, quantity: order.quantity, marketSymbol}));
+        for (var j = 0; j < oldOrders[i].length; j++) {
+          const newOrder = openOrders.find(openOrders => openOrders.price === oldOrders[i][j].price);
+          if(!newOrder) {
+            if (oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
+              const lowestAsk = await getLowestAsk(currentOrders);
+              if(!lowestAsk) continue;
               // Place a counter sell order for the executed buy order
-              const sellPrice = new BN(oldPrice).plus(gridPrice).toFixed(askPrecision);
+              const sellPrice = new BN(lowestAsk).minus(gridPrice).toFixed(askPrecision);
+              const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(sellPrice, pairs[i].pricePerGrid, bidPrecision, askPrecision);
               const order = {
                 orderSide: ORDERSIDES.SELL,
                 price: +sellPrice,
@@ -163,9 +192,13 @@ const placeOrders = async (orders) => {
                 marketSymbol,
               };
               latestOrders.push(order);
-            } else if (oldOrders[j].orderSide === ORDERSIDES.SELL) {
+              currentOrders.push(order);
+            } else if (oldOrders[i][j].orderSide === ORDERSIDES.SELL) {
+              const highestBid = await getHighestBid(currentOrders);
+              if(!highestBid) continue;
               // Place a counter buy order for the executed sell order
-              const buyPrice = new BN(oldPrice).minus(gridPrice).toFixed(askPrecision);;
+              const buyPrice = new BN(highestBid).plus(gridPrice).toFixed(askPrecision);
+              const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(buyPrice, pairs[i].pricePerGrid, bidPrecision, askPrecision);
               const order = {
                 orderSide: ORDERSIDES.BUY,
                 price: +buyPrice,
@@ -173,13 +206,13 @@ const placeOrders = async (orders) => {
                 marketSymbol,
               };
               latestOrders.push(order);
-            }
+              currentOrders.push(order);
+           }
           }
         }
         await placeOrders(latestOrders);
-        currentOrders.push.apply(currentOrders, latestOrders);
         // Update old orders for next round of inspection
-        oldOrders = currentOrders;
+        oldOrders[i] = currentOrders;
       }
     } catch (error) {
       logger.error(error.message);
@@ -189,6 +222,7 @@ const placeOrders = async (orders) => {
 
 const gridStrategy = {
   gridBot,
+  initializeOrders,
 };
 
 export default gridStrategy;

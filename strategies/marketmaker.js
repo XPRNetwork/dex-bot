@@ -241,6 +241,7 @@ const prepareOrders = async (marketSymbol, marketDetails, openOrders) => {
 const placeOrders = async (orders) => {
   if (orders.length === 0) return;
   orders.forEach(async (order) => {
+    logger.info(`price:${order.quantity}`);
     await submitLimitOrder(order.marketSymbol, order.orderSide, order.quantity, order.price);
   });
 };
