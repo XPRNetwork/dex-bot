@@ -181,9 +181,10 @@ const placeOrders = async (orders) => {
           if(!newOrder) {
             if (oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
               const lowestAsk = await getLowestAsk(currentOrders);
-              if(!lowestAsk) continue;
+              var sellPrice;
               // Place a counter sell order for the executed buy order
-              const sellPrice = new BN(lowestAsk).minus(gridPrice).toFixed(askPrecision);
+              if(!lowestAsk) sellPrice = new BN(oldOrders[i][j].price).plus(gridPrice).toFixed(askPrecision);
+              else sellPrice = new BN(lowestAsk).minus(gridPrice).toFixed(askPrecision);
               const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(sellPrice, pairs[i].pricePerGrid, bidPrecision, askPrecision);
               const order = {
                 orderSide: ORDERSIDES.SELL,
@@ -195,9 +196,10 @@ const placeOrders = async (orders) => {
               currentOrders.push(order);
             } else if (oldOrders[i][j].orderSide === ORDERSIDES.SELL) {
               const highestBid = await getHighestBid(currentOrders);
-              if(!highestBid) continue;
               // Place a counter buy order for the executed sell order
-              const buyPrice = new BN(highestBid).plus(gridPrice).toFixed(askPrecision);
+              var buyPrice;
+              if(!highestBid) buyPrice = new BN(oldOrders[i][j].price).minus(gridPrice).toFixed(askPrecision);
+              else buyPrice = new BN(highestBid).plus(gridPrice).toFixed(askPrecision);
               const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(buyPrice, pairs[i].pricePerGrid, bidPrecision, askPrecision);
               const order = {
                 orderSide: ORDERSIDES.BUY,
