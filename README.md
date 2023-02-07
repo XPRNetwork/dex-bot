@@ -6,9 +6,24 @@ This is the code for both market maker and grid trading bot strategies against t
 
 ![Tests](https://github.com/squdgy/dexbot/actions/workflows/test.js.yml/badge.svg?event=push)
 
-This bot works against a multiple markets to place orders on grid category. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. Grid trading doesn’t care about which way the market’s going. It would be a profitable strategy works best in ranging markets. The strategy places a ladder of sells at regular intervals above base price, and another ladder of buys beneath it. Use this as a reference and implement yor own trading algorithm.
+GRID BOT:
+  Grid Trading Bots are programs that allow users to automatically buy low and sell high within a pre-set price range. When one sell order is fully executed, the Grid Trading Bot places a buy order in next round based timeinterval set in tool at a lower grid level, and vice versa. The Grid Trading strategy might perform best in volatile markets, making profits through a series of orders as a token’s price fluctuates.
+  Working Model:
+    Bot automatically buys low and sells high based on the parameters you have set. 
+    Example:
+    "symbol": "XBTC_XMD",
+    "upperLimit": 2330000000000,
+    "lowerLimit": 2280000000000,
+    "gridLevels": 10,
+    "pricePerGrid": 2000000
 
-This has been tested on mainnet with pairs like XPR_XUSDC, XPR_XMD, and XETH_XMD etc markets. A new market can always be added under pairs section and restart bot to take effect.
+    Above setting would set 10 grid levels with each grid size i.e. (2330000000000 - 2280000000000)/10 = 50
+    Note: The orders closet to the sale price would be elimiated on placing Initial orders.
+
+Market Maker BOT:
+ This bot works against multiple markets to place orders bsed on levels defined in settings. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. This strategy doesn’t care about which way the market’s going. The strategy places a ladder of sells at regular intervals above base price, and another ladder of buys beneath it. Use this as a reference and implement yor own trading algorithm.
+
+The bots has been tested on the mainnet with different pairs like XPR_XUSDC, XPR_XMD, and XETH_XMD etc. A new market can always be added under pairs section and restart bot to take effect.
 
 ## Getting Started
 
@@ -87,8 +102,8 @@ config/default.json has other config values you can change
         },
         {
           "symbol": "XPR_XMD",
-          "upperLimit": 22,
-          "lowerLimit": 20,
+          "upperLimit": 24.50,
+          "lowerLimit": 22.50,
           "gridLevels": 10,
           "pricePerGrid": 2000000
         }

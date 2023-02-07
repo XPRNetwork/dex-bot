@@ -148,7 +148,7 @@ const placeOrders = async (orders) => {
         for(let index = 0; index <= gridLevels; index+=1) {
           const price = new BN((pairs[i].upperLimit - (index * gridSize))/10 ** bidPrecision).toFixed(askPrecision);
           const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(+price, pairs[i].pricePerGrid, bidPrecision, askPrecision,);
-          const validOrder = new BN(Math.abs(price - lastSalePrice)).isGreaterThanOrEqualTo(gridPrice);
+          const validOrder = new BN(Math.abs(price - lastSalePrice)).isGreaterThanOrEqualTo(gridPrice/2);
           // Prepare orders and push into a list
           if(validOrder) {
             if(price > lastSalePrice) {
