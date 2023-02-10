@@ -59,11 +59,11 @@ const getOpenOrders = async (marketSymbol) => {
  * @returns {object} object with adjustedTotak and quantity values
  */
 const getQuantityAndAdjustedTotal = (price, totalCost, bidPrecision, askPrecision) => {
-  const quantity = +new BN(totalCost/10 ** askPrecision).dividedBy(price).toFixed(bidPrecision);
-  const adjustedTotal = +new BN(price).times(quantity).toFixed(askPrecision);
+  const adjustedTotal = +new BN(totalCost).times(price).toFixed(askPrecision);
+  const quantity = +new BN(adjustedTotal).dividedBy(price).toFixed(bidPrecision);
   return {
-    adjustedTotal,
     quantity,
+    adjustedTotal,
   };
 };
 
@@ -75,7 +75,7 @@ const parseEachPairConfig = () => {
     }
 
     if (gbpairs[key].upperLimit === undefined || gbpairs[key].lowerLimit === undefined ||
-        gbpairs[key].gridLevels === undefined || gbpairs[key].pricePerGrid === undefined) {
+        gbpairs[key].gridLevels === undefined || gbpairs[key].bidAmountPerLevel === undefined) {
       throw new Error(`Options are missing for market ${marketSymbol} in default.json`);
     }
 
@@ -84,7 +84,7 @@ const parseEachPairConfig = () => {
       upperLimit: parseFloat(gbpairs[key].upperLimit),
       lowerLimit: parseFloat(gbpairs[key].lowerLimit),
       gridLevels: gbpairs[key].gridLevels,
-      pricePerGrid: parseFloat(gbpairs[key].pricePerGrid)
+      bidAmountPerLevel: parseFloat(gbpairs[key].bidAmountPerLevel)
     });
   }
     return pairs;
@@ -139,15 +139,18 @@ const placeOrders = async (orders) => {
       const askPrecision = market.ask_token.precision;
       const lastSalePrice = new BN(marketDetails.price).toFixed(askPrecision);
       const openOrders = await getOpenOrders(marketSymbol);
-      const gridSize = new BN((pairs[i].upperLimit - pairs[i].lowerLimit) / gridLevels);
+      const upperLimit = new BN((pairs[i].upperLimit) * 10 ** bidPrecision);
+      const lowerLimit = new BN((pairs[i].lowerLimit) * 10 ** bidPrecision);
+      const bidAmountPerLevel = new BN((pairs[i].bidAmountPerLevel));
+      const gridSize = new BN((upperLimit - lowerLimit) / gridLevels);
       const gridPrice = new BN(gridSize/10 ** bidPrecision).toFixed(askPrecision);
       let latestOrders = [];
 
       if(!oldOrders[i].length) {
         // Place orders on bot initialization
         for(let index = 0; index <= gridLevels; index+=1) {
-          const price = new BN((pairs[i].upperLimit - (index * gridSize))/10 ** bidPrecision).toFixed(askPrecision);
-          const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(+price, pairs[i].pricePerGrid, bidPrecision, askPrecision,);
+          const price = new BN((upperLimit - (index * gridSize))/10 ** bidPrecision).toFixed(askPrecision);
+          const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(+price, bidAmountPerLevel, bidPrecision, askPrecision,);
           const validOrder = new BN(Math.abs(price - lastSalePrice)).isGreaterThanOrEqualTo(gridPrice/2);
           // Prepare orders and push into a list
           if(validOrder) {
@@ -185,7 +188,7 @@ const placeOrders = async (orders) => {
               // Place a counter sell order for the executed buy order
               if(!lowestAsk) sellPrice = new BN(oldOrders[i][j].price).plus(gridPrice).toFixed(askPrecision);
               else sellPrice = new BN(lowestAsk).minus(gridPrice).toFixed(askPrecision);
-              const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(sellPrice, pairs[i].pricePerGrid, bidPrecision, askPrecision);
+              const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(sellPrice, bidAmountPerLevel, bidPrecision, askPrecision);
               const order = {
                 orderSide: ORDERSIDES.SELL,
                 price: +sellPrice,
@@ -200,7 +203,7 @@ const placeOrders = async (orders) => {
               var buyPrice;
               if(!highestBid) buyPrice = new BN(oldOrders[i][j].price).minus(gridPrice).toFixed(askPrecision);
               else buyPrice = new BN(highestBid).plus(gridPrice).toFixed(askPrecision);
-              const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(buyPrice, pairs[i].pricePerGrid, bidPrecision, askPrecision);
+              const { quantity, adjustedTotal } = getQuantityAndAdjustedTotal(buyPrice, bidAmountPerLevel, bidPrecision, askPrecision);
               const order = {
                 orderSide: ORDERSIDES.BUY,
                 price: +buyPrice,

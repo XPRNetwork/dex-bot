@@ -11,13 +11,13 @@ GRID BOT:
   Working Model:
     Bot automatically buys low and sells high based on the parameters you have set. 
     Example:
-    "symbol": "XBTC_XMD",
-    "upperLimit": 2330000000000,
-    "lowerLimit": 2280000000000,
-    "gridLevels": 10,
-    "pricePerGrid": 2000000
+      "symbol": "XBTC_XMD",
+      "upperLimit": 23000,
+      "lowerLimit": 21000,
+      "gridLevels": 10,
+      "bidAmountPerLevel": 0.0001
 
-    Above setting would set 10 grid levels with each grid size i.e. (2330000000000 - 2280000000000)/10 = 50
+    Above setting would set 10 grid levels with each grid size i.e. (23300 - 23100)/10 = 200
     Note: The orders closet to the sale price would be elimiated on placing Initial orders.
 
 Market Maker BOT:
@@ -71,14 +71,14 @@ config/default.json has other config values you can change
           // Options are "BOTH", "BUY", "SELL"
         {
           "symbol": "XPR_XMD",
-          gridLevels": 3,
+          "gridLevels": 3,
           "gridInterval": 0.01,
           "base": "BID"
           "orderSide": "BUY"
         },
         {
           "symbol": "XETH_XMD",
-          gridLevels": 2,
+          "gridLevels": 2,
           "gridInterval": 0.01,
           "base": "LAST"
           "orderSide": "SELL"
@@ -92,21 +92,21 @@ config/default.json has other config values you can change
         // upperLimit: represents price - upper limit of the trading range
         // lowerLimit: represents price - upper limit of the trading range
         // gridLevels: number of orders to keep
-        // pricePerGrid: cost per each grid
-        {
-          "symbol": "XBTC_XMD",
-          "upperLimit": 2450000000000,
-          "lowerLimit": 2350000000000,
-          "gridLevels": 10,
-          "pricePerGrid": 2000000
-        },
+        // bidAmountPerLevel: Amount to bid/ask per each level
         {
           "symbol": "XPR_XMD",
-          "upperLimit": 24.50,
-          "lowerLimit": 22.50,
+          "upperLimit": 0.0019,
+          "lowerLimit": 0.0016,
           "gridLevels": 10,
-          "pricePerGrid": 2000000
-        }
+          "bidAmountPerLevel": 800.00
+        },
+        {
+          "symbol": "XBTC_XMD",
+          "upperLimit": 23000,
+          "lowerLimit": 21000,
+          "gridLevels": 10,
+          "bidAmountPerLevel": 0.00006
+        }   
       ]
     },
     // permissions on the key ex. active or owner
