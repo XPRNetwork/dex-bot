@@ -25,6 +25,8 @@ Market Maker BOT:
 
 The bots has been tested on the mainnet with different pairs like XPR_XUSDC, XPR_XMD, and XETH_XMD etc. A new market can always be added under pairs section and restart bot to take effect.
 
+NOTE: Script called `cancel_orders.js` is available to cancel either market specific or all open orders by user.
+
 ## Getting Started
 
 ### prerequisites
