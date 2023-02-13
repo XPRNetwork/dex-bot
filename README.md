@@ -38,8 +38,13 @@ NOTE: Script called `cancel_orders.js` is available to cancel either market spec
 1. `npm install`
 1. Add your account name and private key to environment variables, eg
 ```
+Mac and Linux:
 export PROTON_USERNAME=user1
 export PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu
+
+Windows:
+set PROTON_USERNAME=user1
+set PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu
 ```
 1. edit config/default.json to use the market you would like to trade in (symbol value)
 1. `npm run bot`
