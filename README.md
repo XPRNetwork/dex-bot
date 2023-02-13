@@ -9,7 +9,8 @@ This is the code for both market maker and grid trading bot strategies against t
 GRID BOT:
   Grid Trading Bots are programs that allow users to automatically buy low and sell high within a pre-set price range. When one sell order is fully executed, the Grid Trading Bot places a buy order in next round based timeinterval set in tool at a lower grid level, and vice versa. The Grid Trading strategy might perform best in volatile markets, making profits through a series of orders as a token’s price fluctuates.
   Working Model:
-    Bot automatically buys low and sells high based on the parameters you have set. 
+    Bot automatically buys low and sells high based on the parameters you have set.
+    
     Example:
       "symbol": "XBTC_XMD",
       "upperLimit": 23000,
