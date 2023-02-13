@@ -1,13 +1,11 @@
 {
   "bot" : {
-    "api": {
-      "apiRoot": "https://metallicus-dbapi-dev01.binfra.one/dex",
-      "lightApiRoot": "https://testnet-lightapi.eosams.xeos.me/api"
-    },
     "rpc": {
       "endpoints" : [
         "https://protontestnet.greymass.com"
-      ]
+      ],
+      "apiRoot": "https://metallicus-dbapi-dev01.binfra.one/dex",
+      "lightApiRoot": "https://testnet-lightapi.eosams.xeos.me/api"
     }
   }
 }
