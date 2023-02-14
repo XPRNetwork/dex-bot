@@ -1,9 +1,10 @@
 // a basic market maker strategy
+import { OrderHistory } from '@proton/wrap-constants';
 import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
-import { BotConfig, MarketMakerPair, TradingStrategy } from '../interfaces';
+import { BotConfig, MarketMakerPair, TradeOrder, TradingStrategy } from '../interfaces';
 import { getLogger } from '../utils';
-import { TradingStrategyBase } from './base';
+import { MarketDetails, TradingStrategyBase } from './base';
 
 const logger = getLogger();
 
@@ -31,8 +32,8 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
 
         // any orders to place?
         const gridLevels = new BN(this.getGridLevels(this.pairs[i].symbol));
-        const buys = openOrders.filter((order: any) => order.order_side === ORDERSIDES.BUY);
-        const sells = openOrders.filter((order: any) => order.order_side === ORDERSIDES.SELL);
+        const buys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY);
+        const sells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL);
         if (buys.length >= gridLevels.toNumber() && sells.length >= gridLevels.toNumber()) {
           logger.info(`nothing to do - we have enough orders on the books for ${this.pairs[i].symbol}`);
           return;
@@ -96,8 +97,8 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
   }
 
   // prepare the orders we want to have on the books
-  private async prepareOrders(marketSymbol: string, marketDetails: any, openOrders: any[]) {
-    const orders = [];
+  private async prepareOrders(marketSymbol: string, marketDetails: MarketDetails, openOrders: OrderHistory[]): Promise<TradeOrder[]> {
+    const orders: TradeOrder[] = [];
     let numBuys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY).length;
     let numSells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL).length;
 
@@ -107,13 +108,19 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     for (let index = 0; index < levelsN; index += 1) {
       // buy order
       if ((numBuys < levelsN) && ((side === 'BOTH') || (side === 'BUY'))) {
-        orders.push(this.createBuyOrder(marketSymbol, marketDetails, index));
+        const order = this.createBuyOrder(marketSymbol, marketDetails, index);
+        if(order){
+          orders.push(order);
+        }
         numBuys += 1;
       }
 
       // sell order
       if ((numSells < levelsN) && ((side === 'BOTH') || (side === 'SELL'))) {
-        orders.push(this.createSellOrder(marketSymbol, marketDetails, index));
+        const order = this.createSellOrder(marketSymbol, marketDetails, index);
+        if(order) {
+          orders.push(order);
+        }
         numSells += 1;
       }
     }
@@ -136,8 +143,11 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     return side;
   }
   
-  private createBuyOrder(marketSymbol: string, marketDetails: any, index: number) {
+  private createBuyOrder(marketSymbol: string, marketDetails: MarketDetails, index: number): TradeOrder | undefined {
     const { market } = marketDetails;
+    if(!market) {
+      return undefined;
+    }
     const askPrecision = market.ask_token.precision;
     const bidPrecision = market.bid_token.precision;
     const bigMinSpread = new BN(this.getGridInterval(marketSymbol));
@@ -184,8 +194,11 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     return order;
   };
   
-  private createSellOrder(marketSymbol: string, marketDetails: any, index: number) {
+  private createSellOrder(marketSymbol: string, marketDetails: MarketDetails, index: number): TradeOrder | undefined {
     const { market } = marketDetails;
+    if(!market) {
+      return undefined;
+    }
     const askPrecision = market.ask_token.precision;
     const bidPrecision = market.bid_token.precision;
     const bigMinSpread = new BN(this.getGridInterval(marketSymbol));

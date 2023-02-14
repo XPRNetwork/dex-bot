@@ -2,6 +2,14 @@ import { submitLimitOrder } from "../dexrpc";
 import { TradeOrder, TradingStrategy } from "../interfaces";
 import * as dexapi from "../dexapi";
 import { getUsername } from "../utils";
+import { Market } from '@proton/wrap-constants';
+
+export interface MarketDetails {
+  highestBid: number;
+  lowestAsk: number;
+  market?: Market;
+  price: number;
+}
 
 export abstract class TradingStrategyBase implements TradingStrategy {
   abstract initialize(options?: any): Promise<void>;
@@ -31,12 +39,12 @@ export abstract class TradingStrategyBase implements TradingStrategy {
     }
     const allOrders = await this.dexAPI.fetchOpenOrders(this.username);
     const orders = allOrders.filter(
-      (order: any) => order.market_id === market.market_id
+      (order) => order.market_id === market.market_id
     );
     return orders;
   }
 
-  protected async getMarketDetails(marketSymbol: string) {
+  protected async getMarketDetails(marketSymbol: string): Promise<MarketDetails> {
     const market = dexapi.getMarketBySymbol(marketSymbol);
     const price = await dexapi.fetchLatestPrice(marketSymbol);
     const orderBook = await dexapi.fetchOrderBook(marketSymbol, 1);

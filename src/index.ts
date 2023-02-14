@@ -39,7 +39,7 @@ const main = async () => {
         });
       }
       
-      async function signalHandler(signal: any) {
+      async function signalHandler() {
         RUN = false;
         await dexrpc.cancelAllOrders();
         process.exit();

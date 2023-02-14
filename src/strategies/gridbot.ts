@@ -94,10 +94,10 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           await this.placeOrders(this.oldOrders[i]);
         } else if (openOrders.length > 0) {
           // compare open orders with old orders and placce counter orders for the executed orders
-          let currentOrders = openOrders.map((order: any) => ({
+          let currentOrders: TradeOrder[] = openOrders.map((order) => ({
             orderSide: order.order_side,
             price: order.price,
-            quantity: order.quantity,
+            quantity: order.quantity_curr,
             marketSymbol,
           }));
           for (var j = 0; j < this.oldOrders[i].length; j++) {
@@ -220,7 +220,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
     };
   }
 
-  private getHighestBid(orders: any[]): BN | null{
+  private getHighestBid(orders: TradeOrder[]): BN | null{
     const buyOrders = orders.filter((order) => order.orderSide === ORDERSIDES.BUY);
     if (buyOrders.length === 0) return null;
     
@@ -234,7 +234,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
     return highestBid;
   }
   
-  private getLowestAsk(orders: any[]): BN | null {
+  private getLowestAsk(orders: TradeOrder[]): BN | null {
     const sellOrders = orders.filter((order) => order.orderSide === ORDERSIDES.SELL);
     if (sellOrders.length === 0) return null;
   
