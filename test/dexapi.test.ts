@@ -1,5 +1,5 @@
 import chai from 'chai';
-import { fetchBalances } from '../dexapi.js';
+import { fetchBalances } from '../src/dexapi';
 
 const { assert } = chai;
 

@@ -40,7 +40,7 @@ export PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRgg
 ```
 1. edit config/default.json to use the market you would like to trade in (symbol value)
 1. `npm run bot`
-1. To run on testnet: `NODE_ENV=test npm run bot`
+1. To run on testnet: `npm run bot:test`
 
 ## config params
 config/default.json has other config values you can change
@@ -55,9 +55,9 @@ config/default.json has other config values you can change
 
     // strategy to be applied, marketmaker or gridbot
     "strategy": "gridBot",
-    "marketmaker": {
+    "marketMaker": {
       // represents pairs(markets ids) for the market maker strategy
-      "mmpairs": [
+      "pairs": [
           // symbol: market to trade in
 
           // gridLevels: how many buy and how many sell orders to put on the books
@@ -87,7 +87,7 @@ config/default.json has other config values you can change
     },
     // represents pairs(markets ids) for the gridbot strategy
    "gridBot": {
-      "gbpairs": [
+      "pairs": [
         // symbol: market to trade in
         // upperLimit: represents price - upper limit of the trading range
         // lowerLimit: represents price - upper limit of the trading range

@@ -19,6 +19,7 @@ module.exports = {
     'import/extensions': ['error', 'ignorePackages', { js: 'always' }],
     'mocha/no-skipped-tests': 'error',
     'mocha/no-exclusive-tests': 'error',
+    'no-plusplus': ['error', { allowForLoopAfterthoughts: true }],
   },
   settings: {
     'mocha/additionalCustomNames': [

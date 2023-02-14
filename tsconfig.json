@@ -1,0 +1,31 @@
+{
+    "compilerOptions": {
+        "esModuleInterop": true,
+        "lib": [
+            "esnext"
+        ],
+        "skipLibCheck": true,
+        "module": "esnext",
+        "moduleResolution": "node",
+        "outDir": "lib",
+        "strict": true,
+        "target": "esnext",
+        "forceConsistentCasingInFileNames": true,
+        "typeRoots": [
+            "./src/types",
+            "./node_modules/@types",
+        ]
+    },
+    "ts-node": {
+        "esm": true,
+        "experimentalSpecifierResolution": "node"
+    },
+    "include": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules",
+        "lib"
+    ]
+}
