@@ -9,7 +9,8 @@ This is the code for both market maker and grid trading bot strategies against t
 GRID BOT:
   Grid Trading Bots are programs that allow users to automatically buy low and sell high within a pre-set price range. When one sell order is fully executed, the Grid Trading Bot places a buy order in next round based timeinterval set in tool at a lower grid level, and vice versa. The Grid Trading strategy might perform best in volatile markets, making profits through a series of orders as a token’s price fluctuates.
   Working Model:
-    Bot automatically buys low and sells high based on the parameters you have set. 
+    Bot automatically buys low and sells high based on the parameters you have set.
+    
     Example:
       "symbol": "XBTC_XMD",
       "upperLimit": 23000,
@@ -25,6 +26,8 @@ Market Maker BOT:
 
 The bots has been tested on the mainnet with different pairs like XPR_XUSDC, XPR_XMD, and XETH_XMD etc. A new market can always be added under pairs section and restart bot to take effect.
 
+NOTE: Script called `cancel_orders.js` is available to cancel either market specific or all open orders by user.
+
 ## Getting Started
 
 ### prerequisites
@@ -35,8 +38,13 @@ The bots has been tested on the mainnet with different pairs like XPR_XUSDC, XPR
 1. `npm install`
 1. Add your account name and private key to environment variables, eg
 ```
+Mac and Linux:
 export PROTON_USERNAME=user1
 export PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu
+
+Windows:
+set PROTON_USERNAME=user1
+set PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu
 ```
 1. edit config/default.json to use the market you would like to trade in (symbol value)
 1. `npm run bot`
