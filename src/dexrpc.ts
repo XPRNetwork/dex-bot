@@ -64,9 +64,6 @@ export const submitLimitOrder = async (marketSymbol: string, orderSide: ORDERSID
     ? (bnQuantity.times(bidToken.multiplier)).toString()
     : (bnQuantity.times(askToken.multiplier)).toString();
   const priceNormalized = Math.trunc((price || 0) * askToken.multiplier);
-  
-  logger.info('Normalized price', priceNormalized);
-  logger.info('Normalized quantity', quantityNormalized);
 
   const actions: OrderAction[] = [
     {
