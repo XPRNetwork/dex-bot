@@ -1,16 +1,11 @@
-const { JsonRpc, Api, JsSignatureProvider } = require('@proton/js');
+import { JsonRpc, Api, JsSignatureProvider, Serialize } from '@proton/js';
+import fetch from 'node-fetch';
 
-const fetch = require('node-fetch');
-// ********* Need to update endpoint based on mainnet or testnet   ********
-// For testnet use https://protontestnet.greymass.com
-// Mainnet: https://proton.greymass.com
-const ENDPOINTS = ['https://proton.greymass.com'];
 
+// ***** Need to update PRIVATE_KEY, market id and username  ********
 // To export private key from your wallet, follow:
 // https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
 const PRIVATE_KEY = 'PRIVATE_KEY';
-const apiRoot = 'https://metal-dexdb.global.binfra.one/dex';
-// ***** Need to update PRIVATE_KEY, market id and username  ********
 // To cancel all orders eg: const marketSymbol = ''
 const marketSymbol = 'symbol';
 
@@ -23,6 +18,8 @@ const authorization = [
   },
 ];
 
+const apiRoot = 'https://metal-dexdb.global.binfra.one/dex';
+const ENDPOINTS = ['https://proton.greymass.com'];
 // Initialize
 const rpc = new JsonRpc(ENDPOINTS);
 
@@ -74,6 +71,11 @@ const createCancelAction = (orderId) => ({
 const main = async () => {
   let cancelList = [];
   const orders = await fetchOpenOrders(username);
+  if (!orders.length) {
+    console.log(`No orders to cancel`);
+    return;
+  }
+
   if (!marketSymbol) {
     cancelList = orders;
   } else {

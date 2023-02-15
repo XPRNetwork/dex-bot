@@ -26,7 +26,7 @@ Market Maker BOT:
 
 The bots has been tested on the mainnet with different pairs like XPR_XUSDC, XPR_XMD, and XETH_XMD etc. A new market can always be added under pairs section and restart bot to take effect.
 
-NOTE: Script called `cancel_orders.js` is available to cancel either market specific or all open orders by user.
+NOTE: Cancelling orders - Script called `cancel-orders-mainnet.js` and `cancel-orders-testnet.js` are available to cancel either market specific or all open orders by the user.
 
 ## Getting Started
 
@@ -40,15 +40,15 @@ NOTE: Script called `cancel_orders.js` is available to cancel either market spec
 ```
 Mac and Linux:
 export PROTON_USERNAME=user1
-export PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu
+export PROTON_PRIVATE_KEY=private_key
 
-Windows:
-set PROTON_USERNAME=user1
-set PROTON_PRIVATE_KEY=PVT_K1_7yLfEMQXtFmCA3beLg6PSyiSp8paRBK2rdpLZ791XNAvRggXu
+Windows using powershell:
+$env:PROTON_USERNAME = 'user1'
+$env:PROTON_PRIVATE_KEY = 'private_key'
 ```
 1. edit config/default.json to use the market you would like to trade in (symbol value)
 1. `npm run bot`
-1. To run on testnet: `npm run bot:test`
+1. To run on testnet: `npm run bot:test` (windows - `$env:NODE_ENV = 'test'` and `npm run bot`)
 
 ## config params
 config/default.json has other config values you can change

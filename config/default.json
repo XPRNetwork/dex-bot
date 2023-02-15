@@ -1,7 +1,7 @@
 {
   "bot" : {
     "tradeIntervalMS": "5000",
-    "cancelOpenOrdersOnExit": true,
+    "cancelOpenOrdersOnExit": false,
     "strategy": "gridBot",
     "marketMaker": {
       "pairs": [
@@ -17,11 +17,18 @@
     "gridBot": {
       "pairs": [
         {
-          "symbol": "XPR_XUSDC",
-          "upperLimit": 0.05,
-          "lowerLimit": 0.03,
-          "gridLevels": 5,
-          "bidAmountPerLevel": 10
+          "symbol": "XPR_XMD",
+          "upperLimit": 0.0020,
+          "lowerLimit": 0.0010,
+          "gridLevels": 10,
+          "bidAmountPerLevel": 900
+        },
+        {
+          "symbol": "XBTC_XMD",
+          "upperLimit": 23500,
+          "lowerLimit": 21000,
+          "gridLevels": 10,
+          "bidAmountPerLevel": 0.0001
         }
       ]
     },
