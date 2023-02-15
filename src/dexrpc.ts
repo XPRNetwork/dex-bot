@@ -107,6 +107,13 @@ export const submitLimitOrder = async (marketSymbol: string, orderSide: ORDERSID
         show_error_msg: 0,
       },
     },
+    {
+      account: 'dex',
+      name: "withdrawall",
+      data: {
+          account: username,
+      },
+    },
   ];
 
   const response = await transact(actions);
@@ -119,6 +126,14 @@ const createCancelAction = (orderId: string | number): OrderAction => ({
   data: {
     account: username,
     order_id: orderId,
+  },
+});
+
+const withdrawAction = () => ({
+  account: 'dex',
+  name: "withdrawall",
+  data: {
+      account: username,
   },
 });
 
@@ -141,7 +156,8 @@ export const cancelAllOrders = async (): Promise<void> => {
     return undefined;
   }
   logger.info(`Canceling all (${orders.length}) orders`);
-  const actions = orders.map((order) => createCancelAction(order.order_id));
+  let actions = orders.map((order) => createCancelAction(order.order_id));
+  actions.push(withdrawAction());
   const response = await transact(actions);
   return response;
 };
