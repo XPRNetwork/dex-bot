@@ -4,7 +4,7 @@
     "cancelOpenOrdersOnExit": true,
     "strategy": "gridBot",
     "marketMaker": {
-      "mmpairs": [
+      "pairs": [
         {
           "symbol": "XPR_XUSDC",
           "gridLevels": 4,
@@ -15,21 +15,14 @@
       ]
     },
     "gridBot": {
-      "gbpairs": [
+      "pairs": [
         {
-          "symbol": "XPR_XMD",
-          "upperLimit": 0.0018,
-          "lowerLimit": 0.0016,
-          "gridLevels": 10,
-          "bidAmountPerLevel": 800.00
-        },
-        {
-          "symbol": "XBTC_XMD",
-          "upperLimit": 23000,
-          "lowerLimit": 21000,
-          "gridLevels": 10,
-          "bidAmountPerLevel": 0.00006
-        }  
+          "symbol": "XPR_XUSDC",
+          "upperLimit": 0.05,
+          "lowerLimit": 0.03,
+          "gridLevels": 5,
+          "bidAmountPerLevel": 10
+        }
       ]
     },
     "rpc": {
