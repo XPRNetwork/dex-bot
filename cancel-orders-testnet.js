@@ -18,9 +18,8 @@ const authorization = [
   },
 ];
 
-const apiRoot = 'https://metallicus-dbapi-dev01.binfra.one/dex"';
-const ENDPOINTS = ['https://testnet-lightapi.eosams.xeos.me/api'];
-
+const apiRoot = 'https://metallicus-dbapi-dev01.binfra.one/dex';
+const ENDPOINTS = ['https://protontestnet.greymass.com'];
 // Initialize
 const rpc = new JsonRpc(ENDPOINTS);
 
@@ -72,10 +71,6 @@ const createCancelAction = (orderId) => ({
 const main = async () => {
   let cancelList = [];
   const orders = await fetchOpenOrders(username);
-  if (!orders) {
-    console.log(`No orders to cancel`);
-    return;
-  }
 
   if (!marketSymbol) {
     cancelList = orders;
@@ -95,6 +90,10 @@ const main = async () => {
       return;
     }
     cancelList = marketOrders;
+  }
+  if(!cancelList.length) {
+    console.log(`No orders to cancel`);
+    return;
   }
   console.log(`Canceling all (${cancelList.length}) orders`);
   const actions = cancelList.map((order) => createCancelAction(order.order_id));

@@ -5,7 +5,7 @@ import fetch from 'node-fetch';
 // ***** Need to update PRIVATE_KEY, market id and username  ********
 // To export private key from your wallet, follow:
 // https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
-const PRIVATE_KEY = 'PRIVATE_KEY';
+const PRIVATE_KEY = 'private_key';
 // To cancel all orders eg: const marketSymbol = ''
 const marketSymbol = 'symbol';
 
@@ -71,10 +71,6 @@ const createCancelAction = (orderId) => ({
 const main = async () => {
   let cancelList = [];
   const orders = await fetchOpenOrders(username);
-  if (!orders.length) {
-    console.log(`No orders to cancel`);
-    return;
-  }
 
   if (!marketSymbol) {
     cancelList = orders;
@@ -94,6 +90,10 @@ const main = async () => {
       return;
     }
     cancelList = marketOrders;
+  }
+  if(!cancelList.length) {
+    console.log(`No orders to cancel`);
+    return;
   }
   console.log(`Canceling all (${cancelList.length}) orders`);
   const actions = cancelList.map((order) => createCancelAction(order.order_id));
