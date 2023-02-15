@@ -68,6 +68,15 @@ const createCancelAction = (orderId) => ({
   authorization,
 });
 
+const withdrawAction = () => ({
+  account: 'dex',
+  name: "withdrawall",
+  data: {
+      account: username,
+  },
+  authorization
+});
+
 const main = async () => {
   let cancelList = [];
   const orders = await fetchOpenOrders(username);
@@ -95,8 +104,9 @@ const main = async () => {
     console.log(`No orders to cancel`);
     return;
   }
-  console.log(`Canceling all (${cancelList.length}) orders`);
-  const actions = cancelList.map((order) => createCancelAction(order.order_id));
+  console.log(`Cancelling all (${cancelList.length}) orders`);
+  let actions = cancelList.map((order) => createCancelAction(order.order_id));
+  actions.push(withdrawAction());
   const response = await transact(actions);
   return response;
 };

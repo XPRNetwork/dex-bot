@@ -95,7 +95,7 @@ const main = async () => {
     console.log(`No orders to cancel`);
     return;
   }
-  console.log(`Canceling all (${cancelList.length}) orders`);
+  console.log(`Cancelling all (${cancelList.length}) orders`);
   const actions = cancelList.map((order) => createCancelAction(order.order_id));
   const response = await transact(actions);
   return response;
