@@ -55,7 +55,12 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
 
         if (!this.oldOrders[i].length) {
           // Place orders on bot initialization
-          for (let index = 0; index <= gridLevels; index += 1) {
+          let index = 0;
+          let maxGrids = gridLevels;
+          if(upperLimit.isGreaterThanOrEqualTo(lastSalePrice) && lowerLimit.isGreaterThanOrEqualTo(lastSalePrice))  maxGrids -= 1;
+          if(upperLimit.isLessThanOrEqualTo(lastSalePrice) && lowerLimit.isLessThanOrEqualTo(lastSalePrice))   index = 1;
+          logger.info(`upperLimit ${upperLimit}, lowerLimit: ${lowerLimit}, lastSalePrice: ${lastSalePrice}, index ${index}, maxgrids ${maxGrids}`);
+          for (; index <= maxGrids; index += 1) {
             const price = upperLimit
               .minus(gridSize.multipliedBy(index))
               .dividedBy(10 ** bidPrecision)
