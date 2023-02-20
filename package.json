@@ -22,7 +22,7 @@
   "author": "Maura Wilder",
   "license": "MIT",
   "dependencies": {
-    "@proton/js": "^27.3.0",
+    "@proton/js": "^27.5.5",
     "@proton/wrap-constants": "^0.2.68",
     "bignumber.js": "^9.1.1",
     "config": "^3.3.8",
