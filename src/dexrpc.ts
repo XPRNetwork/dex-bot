@@ -152,7 +152,7 @@ export const cancelOrder = async (orderId: string): Promise<void> => {
 export const cancelAllOrders = async (): Promise<void> => {
   const orders = await dexapi.fetchOpenOrders(username);
   if (!orders.length) {
-    logger.info('No orders to cancel)');
+    logger.info('No orders to cancel');
     return undefined;
   }
   logger.info(`Canceling all (${orders.length}) orders`);

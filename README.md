@@ -28,6 +28,8 @@ The bots has been tested on the mainnet with different pairs like XPR_XUSDC, XPR
 
 NOTE: Cancelling orders - Script called `cancel-orders-mainnet.js` and `cancel-orders-testnet.js` are available to cancel either market specific or all open orders by the user.
 
+NOTE: User balance and open orders can be integrated to slack channel on running gridbot based periodic intervals. Options slackBotToken and channelId needs to be updated in the config file. Slack bot token can be created by following the documentation at https://api.slack.com/authentication/basics and make sure that invite app into the slack channel
+
 ## Getting Started
 
 ### prerequisites
@@ -57,6 +59,11 @@ config/default.json has other config values you can change
   "bot" : {
     // how often to attempt trade
     "tradeIntervalMS": "5000",
+
+    // Slack bot token eg: xoxb-5672345689032-4846869117232-1clJ35VeuI2y3F1oczinKKHm
+    "slackBotToken": "",
+    // This argument can be a channel ID, a DM ID, a MPDM ID, or a group ID for the slack bot
+    "channelId" = '';
 
     // set to true in order to cancel all open orders when the bot shuts down
     "cancelOpenOrdersOnExit": false,

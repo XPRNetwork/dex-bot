@@ -3,6 +3,7 @@ import * as dexapi from './dexapi';
 import * as dexrpc from './dexrpc';
 import { getStrategy } from './strategies';
 import readline from 'readline';
+import { postSlackMsg } from './slackapi';
 
 function delay(ms: number) {
   return new Promise((resolve) => {
@@ -55,6 +56,12 @@ const main = async () => {
         [
           delay(config.tradeIntervalMS),
           currentStrategy.trade(),
+        ]
+      );
+      await Promise.all(
+        [
+          delay(config.slackIntervalMS),
+          postSlackMsg(),
         ]
       );
     }
