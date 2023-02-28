@@ -57,9 +57,12 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           // Place orders on bot initialization
           let index = 0;
           let maxGrids = gridLevels;
-          if(upperLimit.isGreaterThanOrEqualTo(lastSalePrice) && lowerLimit.isGreaterThanOrEqualTo(lastSalePrice))  maxGrids -= 1;
-          if(upperLimit.isLessThanOrEqualTo(lastSalePrice) && lowerLimit.isLessThanOrEqualTo(lastSalePrice))   index = 1;
-          logger.info(`upperLimit ${upperLimit}, lowerLimit: ${lowerLimit}, lastSalePrice: ${lastSalePrice}, index ${index}, maxgrids ${maxGrids}`);
+          if(!maxGrids)
+            continue;
+          const priceTraded = new BN(lastSalePrice).times(10 ** bidPrecision);
+          if(upperLimit.isGreaterThanOrEqualTo(priceTraded) && lowerLimit.isGreaterThanOrEqualTo(priceTraded))  maxGrids -= 1;
+          if(upperLimit.isLessThanOrEqualTo(priceTraded) && lowerLimit.isLessThanOrEqualTo(priceTraded))   index = 1;
+          logger.info(`upperLimit ${upperLimit}, lowerLimit: ${lowerLimit}, priceTraded: ${priceTraded}, index ${index}, maxgrids ${maxGrids}`);
           for (; index <= maxGrids; index += 1) {
             const price = upperLimit
               .minus(gridSize.multipliedBy(index))
@@ -111,6 +114,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 openOrders.price === this.oldOrders[i][j].price
             );
             if (!newOrder) {
+              logger.info(`CO length: ${currentOrders.length}, LO length: ${latestOrders.length}, OO length: ${openOrders.length}, OD Price ${this.oldOrders[i][j].price},OD side ${this.oldOrders[i][j].orderSide}`);
               if (this.oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
                 const lowestAsk = this.getLowestAsk(currentOrders);
                 var sellPrice;
