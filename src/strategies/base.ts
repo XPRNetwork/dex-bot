@@ -1,7 +1,7 @@
-import { submitLimitOrder } from "../dexrpc";
+import { prepareLimitOrder, submitOrders } from "../dexrpc";
 import { TradeOrder, TradingStrategy } from "../interfaces";
 import * as dexapi from "../dexapi";
-import { getUsername } from "../utils";
+import { getUsername, getLogger } from "../utils";
 import { Market } from '@proton/wrap-constants';
 
 export interface MarketDetails {
@@ -20,15 +20,16 @@ export abstract class TradingStrategyBase implements TradingStrategy {
   protected username = getUsername();
 
   protected async placeOrders(orders: TradeOrder[]): Promise<void> {
-    if (orders.length) {
-      orders.forEach(async (order) => {
-        await submitLimitOrder(
-          order.marketSymbol,
-          order.orderSide,
-          order.quantity,
-          order.price
-        );
-      });
+    for(var i = 1; i <= orders.length; i++) {
+        await prepareLimitOrder(
+          orders[i-1].marketSymbol,
+          orders[i-1].orderSide,
+          orders[i-1].quantity,
+          orders[i-1].price
+      );
+      if(i%30 === 0 || i === orders.length) {
+        await submitOrders();
+      };
     }
   }
 

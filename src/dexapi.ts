@@ -37,7 +37,7 @@ export const fetchOrderBook = async (symbol: string, limit = 100, step = 100000)
  * @returns  {Promise<array>} - list of all open orders
  */
 export const fetchOpenOrders = async (username: string): Promise<OrderHistory[]> => {
-  const openOrders = await fetchFromAPI<OrderHistory[]>(apiRoot, `/v1/orders/open?limit=100&offset=0&account=${username}`);
+  const openOrders = await fetchFromAPI<OrderHistory[]>(apiRoot, `/v1/orders/open?limit=250&offset=0&account=${username}`);
   return openOrders;
 };
 

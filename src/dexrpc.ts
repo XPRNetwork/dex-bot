@@ -5,7 +5,7 @@ import { FILLTYPES, ORDERSIDES, ORDERTYPES } from './core/constants';
 import * as dexapi from './dexapi';
 import { getConfig, getLogger, getUsername } from './utils';
 
-interface OrderAction extends Omit< Serialize.Action, 'authorization'> {}
+type OrderAction = Serialize.Action
 
 const logger = getLogger();
 
@@ -14,6 +14,7 @@ const { endpoints, privateKey, privateKeyPermission } = config.rpc;
 const username = getUsername();
 
 let signatureProvider = process.env.npm_lifecycle_event === 'test'? undefined : new JsSignatureProvider([privateKey]);
+let actions: OrderAction[] = [];
 
 // Initialize
 const rpc = new JsonRpc(endpoints);
@@ -26,6 +27,11 @@ const apiTransact = (actions: Serialize.Action[] ) => api.transact({ actions }, 
   blocksBehind: 300,
   expireSeconds: 3000,
 });
+
+const authorization = [{
+  actor: username,
+  permission: privateKeyPermission,
+}];
 
 /**
  * Given a list of on-chain actions, apply authorization and send
@@ -44,7 +50,7 @@ const transact = async (actions: OrderAction[]) => {
  * Place a buy or sell limit order. Quantity and price are string values to
  * avoid loss of precision when placing order
  */
-export const submitLimitOrder = async (marketSymbol: string, orderSide: ORDERSIDES, quantity: BigNumber.Value, price: number | undefined = undefined): Promise<void> => {
+export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSIDES, quantity: BigNumber.Value, price: number | undefined = undefined): Promise<void> => {
   const market = dexapi.getMarketBySymbol(marketSymbol);
   if(!market) {
     throw new Error(`No market found by symbol ${marketSymbol}`);
@@ -65,7 +71,7 @@ export const submitLimitOrder = async (marketSymbol: string, orderSide: ORDERSID
     : (bnQuantity.times(askToken.multiplier)).toString();
   const priceNormalized = Math.trunc((price || 0) * askToken.multiplier);
 
-  const actions: OrderAction[] = [
+  actions.push(
     {
       account: orderSide === ORDERSIDES.SELL ? bidToken.contract : askToken.contract,
       name: 'transfer',
@@ -75,6 +81,7 @@ export const submitLimitOrder = async (marketSymbol: string, orderSide: ORDERSID
         quantity: quantityText,
         memo: '',
       },
+      authorization,
     },
     {
       account: 'dex',
@@ -98,27 +105,34 @@ export const submitLimitOrder = async (marketSymbol: string, orderSide: ORDERSID
         fill_type: FILLTYPES.POST_ONLY,
         referrer: '',
       },
+      authorization,
     },
-    {
-      account: 'dex',
-      name: 'process',
-      data: {
-        q_size: 50,
-        show_error_msg: 0,
-      },
-    },
-    {
-      account: 'dex',
-      name: "withdrawall",
-      data: {
-          account: username,
-      },
-    },
-  ];
-
-  const response = await transact(actions);
-  return response;
+  );
 };
+
+export const submitOrders = async (): Promise<void> => {
+  actions.push(
+  {
+    account: 'dex',
+    name: 'process',
+    data: {
+      q_size: 60,
+      show_error_msg: 0,
+    },
+    authorization,
+  },
+  {
+    account: 'dex',
+    name: "withdrawall",
+    data: {
+        account: username,
+    },
+    authorization,
+  },);
+
+  const response = await apiTransact(actions);
+  actions = [];
+}
 
 const createCancelAction = (orderId: string | number): OrderAction => ({
   account: 'dex',
@@ -127,6 +141,7 @@ const createCancelAction = (orderId: string | number): OrderAction => ({
     account: username,
     order_id: orderId,
   },
+  authorization,
 });
 
 const withdrawAction = () => ({
@@ -135,6 +150,7 @@ const withdrawAction = () => ({
   data: {
       account: username,
   },
+  authorization,
 });
 
 /**

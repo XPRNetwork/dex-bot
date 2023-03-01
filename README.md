@@ -188,12 +188,12 @@ config/default.json has other config values you can change
     const response = await fetchOrderHistory('metallicus', 20, 0);
     logger.info(response);
 ```
-- **submitLimitOrder** - submit a buy or sell limit order to the dex in postonly mode (ensure it is a maker trade)
+- **prepareLimitOrder** - submit a buy or sell limit order to the dex in postonly mode (ensure it is a maker trade)
 ```
     // place an order to sell XPR into USDC
     const quantity = 570;
     const price = 0.002020;
-    submitLimitOrder('XPR_XUSDC', ORDERSIDES.SELL, quantity, price);
+    prepareLimitOrder('XPR_XUSDC', ORDERSIDES.SELL, quantity, price);
 ```
 
 ### Accounts
