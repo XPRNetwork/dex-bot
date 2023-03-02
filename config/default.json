@@ -1,7 +1,7 @@
 {
   "bot" : {
     "tradeIntervalMS": "5000",
-    "slackIntervalMS": "360000",
+    "slackIntervalMS": "5000",
     "slackBotToken": "",
     "channelId": "",
     "cancelOpenOrdersOnExit": false,
@@ -20,17 +20,10 @@
     "gridBot": {
       "pairs": [
         {
-          "symbol": "XPR_XMD",
-          "upperLimit": 0.0025,
-          "lowerLimit": 0.0015,
-          "gridLevels": 10,
-          "bidAmountPerLevel": 900
-        },
-        {
           "symbol": "XBTC_XMD",
-          "upperLimit": 26000,
-          "lowerLimit": 24000,
-          "gridLevels": 10,
+          "upperLimit": 23600.5,
+          "lowerLimit": 23600,
+          "gridLevels": 50,
           "bidAmountPerLevel": 0.0001
         }
       ]
@@ -38,8 +31,7 @@
     "rpc": {
       "privateKeyPermission": "active",
       "endpoints" : [
-        "https://proton.greymass.com",
-        "https://proton.eoscafeblock.com"
+        "https://metal-proton-rpc.global.binfra.one"
       ],
       "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
