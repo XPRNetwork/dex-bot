@@ -11,21 +11,30 @@ function delay(ms: number) {
   });
 }
 
+const execTrade = async () => {
+  await currentStrategy.trade()
+  await delay(config.tradeIntervalMS)
+  execTrade()
+}
+
+const execSlack = async () => {
+  await postSlackMsg()
+  await delay(config.slackIntervalMS)
+  execSlack()
+}
+const config = getConfig();
+const currentStrategy = getStrategy(config.strategy);
+currentStrategy.initialize(config[config.strategy]);
+
 /**
  * Main
  * This sets up the logic for the application, the looping, timing, and what to do on exit.
  */
 const main = async () => {
-  const config = getConfig();
   const logger = getLogger();
   
   await dexapi.initialize();
-  
-  const currentStrategy = getStrategy(config.strategy);
-  
-  currentStrategy.initialize(config[config.strategy]);
 
-  let RUN = true;
   try {
     process.stdin.resume();
     if (config.cancelOpenOrdersOnExit) {
@@ -41,7 +50,6 @@ const main = async () => {
       }
       
       async function signalHandler() {
-        RUN = false;
         await dexrpc.cancelAllOrders();
         process.exit();
       }
@@ -51,20 +59,8 @@ const main = async () => {
       process.on('SIGQUIT', signalHandler)
     }
     
-    while(RUN) {
-      await Promise.all(
-        [
-          delay(config.tradeIntervalMS),
-          currentStrategy.trade(),
-        ]
-      );
-      await Promise.all(
-        [
-          delay(config.slackIntervalMS),
-          postSlackMsg(),
-        ]
-      );
-    }
+    execTrade()
+    execSlack()
   } catch (error) {
     logger.error((error as Error).message);
   }
