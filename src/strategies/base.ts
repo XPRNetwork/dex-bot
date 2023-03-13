@@ -1,4 +1,4 @@
-import { prepareLimitOrder, submitOrders } from "../dexrpc";
+import { prepareLimitOrder, submitProcessAction, submitOrders } from "../dexrpc";
 import { TradeOrder, TradingStrategy } from "../interfaces";
 import * as dexapi from "../dexapi";
 import { getUsername, getLogger } from "../utils";
@@ -28,6 +28,7 @@ export abstract class TradingStrategyBase implements TradingStrategy {
           orders[i-1].price
       );
       if(i%30 === 0 || i === orders.length) {
+        submitProcessAction();
         await submitOrders();
       };
     }

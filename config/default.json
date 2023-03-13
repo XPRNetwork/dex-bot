@@ -1,7 +1,7 @@
 {
   "bot" : {
-    "tradeIntervalMS": "5000",
-    "slackIntervalMS": "5000",
+    "tradeIntervalMS": "10000",
+    "slackIntervalMS": "1000000",
     "slackBotToken": "",
     "channelId": "",
     "cancelOpenOrdersOnExit": false,
@@ -21,10 +21,24 @@
       "pairs": [
         {
           "symbol": "XBTC_XMD",
-          "upperLimit": 23600.5,
-          "lowerLimit": 23600,
+          "upperLimit": 28000,
+          "lowerLimit": 19000,
           "gridLevels": 50,
           "bidAmountPerLevel": 0.0001
+        },
+        {
+          "symbol": "XETH_XMD",
+          "upperLimit": 2300,
+          "lowerLimit": 1400,
+          "gridLevels": 10,
+          "bidAmountPerLevel": 0.001
+        },
+        {
+          "symbol": "XPR_XMD",
+          "upperLimit": 0.002,
+          "lowerLimit": 0.001,
+          "gridLevels": 50,
+          "bidAmountPerLevel": 1000
         }
       ]
     },

@@ -134,6 +134,20 @@ export const submitOrders = async (): Promise<void> => {
   actions = [];
 }
 
+export const submitProcessAction = () => {
+  const processAction = [({
+    account: 'dex',
+    name: 'process',
+    data: {
+      q_size: 50,
+      show_error_msg: 0,
+    },
+    authorization,
+  })];
+
+  const response = apiTransact(processAction);
+}
+
 const createCancelAction = (orderId: string | number): OrderAction => ({
   account: 'dex',
   name: 'cancelorder',
