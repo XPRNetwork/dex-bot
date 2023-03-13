@@ -134,12 +134,12 @@ export const submitOrders = async (): Promise<void> => {
   actions = [];
 }
 
-export const submitProcessAction = () => {
+export const submitProcessAction = async (): Promise<void> => {
   const processAction = [({
     account: 'dex',
     name: 'process',
     data: {
-      q_size: 50,
+      q_size: 100,
       show_error_msg: 0,
     },
     authorization,
