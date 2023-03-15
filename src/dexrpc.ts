@@ -69,7 +69,7 @@ export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSI
   const quantityNormalized = orderSide === ORDERSIDES.SELL
     ? (bnQuantity.times(bidToken.multiplier)).toString()
     : (bnQuantity.times(askToken.multiplier)).toString();
-  const priceNormalized = Math.trunc((price || 0) * askToken.multiplier);
+  const priceNormalized = Math.round((price || 0) * askToken.multiplier);
 
   actions.push(
     {
