@@ -40,7 +40,7 @@ const fetchFromAPI = async (root, path, returnData = true) => {
 const fetchOpenOrders = async (username) => {
   const openOrders = await fetchFromAPI(
     apiRoot,
-    `/v1/orders/open?limit=200&offset=0&account=${username}`,
+    `/v1/orders/open?limit=150&offset=0&account=${username}`,
   );
   return openOrders;
 };
@@ -54,7 +54,7 @@ const transact = (actions) => api.transact(
   { actions },
   {
     blocksBehind: 300,
-    expireSeconds: 10000,
+    expireSeconds: 3600,
   },
 );
 
