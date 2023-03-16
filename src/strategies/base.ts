@@ -11,6 +11,10 @@ export interface MarketDetails {
   price: number;
 }
 
+function delay(ms: number) {
+  return new Promise( resolve => setTimeout(resolve, ms) );
+}
+
 export abstract class TradingStrategyBase implements TradingStrategy {
   abstract initialize(options?: any): Promise<void>;
 
@@ -30,6 +34,7 @@ export abstract class TradingStrategyBase implements TradingStrategy {
       if(i%30 === 0 || i === orders.length) {
         await submitProcessAction();
         await submitOrders();
+        await delay(2000);
       };
     }
   }
