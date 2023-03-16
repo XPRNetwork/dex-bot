@@ -50,7 +50,7 @@ const transact = async (actions: OrderAction[]) => {
  * Place a buy or sell limit order. Quantity and price are string values to
  * avoid loss of precision when placing order
  */
-export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSIDES, quantity: BigNumber.Value, price: number | undefined = undefined): Promise<void> => {
+export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSIDES, quantity: BigNumber.Value, price: number): Promise<void> => {
   const market = dexapi.getMarketBySymbol(marketSymbol);
   if(!market) {
     throw new Error(`No market found by symbol ${marketSymbol}`);
@@ -69,7 +69,9 @@ export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSI
   const quantityNormalized = orderSide === ORDERSIDES.SELL
     ? (bnQuantity.times(bidToken.multiplier)).toString()
     : (bnQuantity.times(askToken.multiplier)).toString();
-  const priceNormalized = Math.round((price || 0) * askToken.multiplier);
+
+  const cPrice = new BigNumber(price);
+  const priceNormalized = cPrice.multipliedBy(askToken.multiplier);
 
   actions.push(
     {

@@ -72,6 +72,7 @@ export interface Balance {
     decimals: number;
 }
 
+type TokenBalance = string;
 /**
  *
  * @param {string} username - name of proton user/account to retrieve history for
@@ -82,6 +83,12 @@ export const fetchBalances = async (username: string): Promise<Balance[]> => {
   const chain = process.env.NODE_ENV === 'test' ? 'protontest' : 'proton';
   const response = await fetchFromAPI<{ balances: Balance[] }>(lightApiRoot, `/balances/${chain}/${username}`, false);
   return response.balances;
+};
+
+export const fetchTokenBalance = async (username: string, contractname: string, token: string): Promise<TokenBalance> => {
+  const chain = process.env.NODE_ENV === 'test' ? 'protontest' : 'proton';
+  const tBalance = await fetchFromAPI<TokenBalance>(lightApiRoot, `/tokenbalance/${chain}/${username}/${contractname}/${token}`, false);
+  return tBalance;
 };
 
 const marketsRepo: { 

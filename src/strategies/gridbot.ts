@@ -2,8 +2,9 @@
 import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
 import { BotConfig, GridBotPair, TradeOrder, TradingStrategy } from '../interfaces';
-import { configValueToFloat, configValueToInt, getLogger } from '../utils';
+import { configValueToFloat, configValueToInt, getLogger, getUsername } from '../utils';
 import { TradingStrategyBase } from './base';
+import { fetchTokenBalance } from '../dexapi';
 
 const logger = getLogger();
 
@@ -52,6 +53,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           .dividedBy(10 ** bidPrecision)
           .toFixed(askPrecision);
         let latestOrders = [];
+        const username = getUsername();
 
         if (!this.oldOrders[i].length) {
           // Place orders on bot initialization
@@ -63,6 +65,8 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           if(upperLimit.isGreaterThanOrEqualTo(priceTraded) && lowerLimit.isGreaterThanOrEqualTo(priceTraded))  maxGrids -= 1;
           if(upperLimit.isLessThanOrEqualTo(priceTraded) && lowerLimit.isLessThanOrEqualTo(priceTraded))   index = 1;
           logger.info(`upperLimit ${upperLimit}, lowerLimit: ${lowerLimit}, priceTraded: ${priceTraded}, index ${index}, maxgrids ${maxGrids}`);
+          var sellToken = 0;
+          var buyToken = 0;
           for (; index <= maxGrids; index += 1) {
             const price = upperLimit
               .minus(gridSize.multipliedBy(index))
@@ -87,6 +91,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                   quantity: quantity,
                   marketSymbol,
                 };
+                sellToken += quantity;
                 this.oldOrders[i].push(order);
               } else if (price < lastSalePrice) {
                 const order = {
@@ -95,10 +100,22 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                   quantity: adjustedTotal,
                   marketSymbol,
                 };
+                buyToken += adjustedTotal;
                 this.oldOrders[i].push(order);
               }
             }
           }
+          const sellTotal = new BN(sellToken).toFixed(bidPrecision);
+          const buyTotal = new BN(buyToken).toFixed(askPrecision);
+          const sellBalances  = await fetchTokenBalance(username, market.bid_token.contract, market.bid_token.code);
+          const buyBalances = await fetchTokenBalance(username, market.ask_token.contract, market.ask_token.code);
+          if(sellTotal > sellBalances || buyTotal > buyBalances) {
+            logger.error(`LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}
+                      Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`);
+            logger.info(` Overdrawn Balance - Not placing orders for ${market.bid_token.code}-${market.ask_token.code} `);
+            continue;
+          }
+
           await this.placeOrders(this.oldOrders[i]);
         } else if (openOrders.length > 0) {
           // compare open orders with old orders and placce counter orders for the executed orders

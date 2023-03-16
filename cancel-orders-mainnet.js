@@ -19,7 +19,7 @@ const authorization = [
 ];
 
 const apiRoot = 'https://metal-dexdb.global.binfra.one/dex';
-const ENDPOINTS = ['https://proton.greymass.com'];
+const ENDPOINTS = ['https://metal-proton-rpc.global.binfra.one'];
 // Initialize
 const rpc = new JsonRpc(ENDPOINTS);
 
