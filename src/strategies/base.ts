@@ -34,7 +34,6 @@ export abstract class TradingStrategyBase implements TradingStrategy {
       if(i%30 === 0 || i === orders.length) {
         await submitProcessAction();
         await submitOrders();
-        await delay(2000);
       };
     }
   }
@@ -44,6 +43,7 @@ export abstract class TradingStrategyBase implements TradingStrategy {
     if (market === undefined) {
       throw new Error(`Market ${marketSymbol} does not exist`);
     }
+    await delay(3000);
     const allOrders = await this.dexAPI.fetchOpenOrders(this.username);
     const orders = allOrders.filter(
       (order) => order.market_id === market.market_id
