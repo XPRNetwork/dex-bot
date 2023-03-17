@@ -41,6 +41,11 @@ export const fetchOpenOrders = async (username: string): Promise<OrderHistory[]>
   return openOrders;
 };
 
+export const fetchPairOpenOrders = async (username: string, symbol: string): Promise<OrderHistory[]> => {
+  const openOrders = await fetchFromAPI<OrderHistory[]>(apiRoot, `/v1/orders/open?limit=250&offset=0&account=${username}&symbol=${symbol}`);
+  return openOrders;
+};
+
 /**
  * Return history of unopened orders for a given user
  */

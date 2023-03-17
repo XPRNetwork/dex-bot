@@ -44,12 +44,10 @@ export abstract class TradingStrategyBase implements TradingStrategy {
     if (market === undefined) {
       throw new Error(`Market ${marketSymbol} does not exist`);
     }
-    await delay(3000);
-    const allOrders = await this.dexAPI.fetchOpenOrders(this.username);
-    const orders = allOrders.filter(
-      (order) => order.market_id === market.market_id
-    );
-    return orders;
+
+    const allOrders = await this.dexAPI.fetchPairOpenOrders(this.username, marketSymbol);
+    console.log(`Open orders size for pair ${marketSymbol} ${allOrders.length}`);
+    return allOrders;
   }
 
   protected async getMarketDetails(marketSymbol: string): Promise<MarketDetails> {
