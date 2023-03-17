@@ -34,6 +34,7 @@ export abstract class TradingStrategyBase implements TradingStrategy {
       if(i%30 === 0 || i === orders.length) {
         await submitProcessAction();
         await submitOrders();
+        await delay(2000);
       };
     }
   }
