@@ -131,7 +131,6 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 openOrders.price === this.oldOrders[i][j].price
             );
             if (!newOrder) {
-              logger.info(`CO length: ${currentOrders.length}, LO length: ${latestOrders.length}, OO length: ${openOrders.length}, OD Price ${this.oldOrders[i][j].price},OD side ${this.oldOrders[i][j].orderSide}`);
               if (this.oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
                 const lowestAsk = this.getLowestAsk(currentOrders);
                 var sellPrice;

@@ -151,7 +151,7 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     const askPrecision = market.ask_token.precision;
     const bidPrecision = market.bid_token.precision;
     const bigMinSpread = new BN(this.getGridInterval(marketSymbol));
-    const minOrder = market.order_min / market.ask_token.multiplier;
+    const minOrder = market.order_min;
   
     const lastSalePrice = new BN(marketDetails.price);
     const lowestAsk = new BN(marketDetails.lowestAsk);
@@ -202,7 +202,7 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     const askPrecision = market.ask_token.precision;
     const bidPrecision = market.bid_token.precision;
     const bigMinSpread = new BN(this.getGridInterval(marketSymbol));
-    const minOrder = market.order_min / market.ask_token.multiplier;
+    const minOrder = market.order_min;
   
     const lastSalePrice = new BN(marketDetails.price);
     const lowestAsk = new BN(marketDetails.lowestAsk);

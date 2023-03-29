@@ -25,7 +25,14 @@ export const postSlackMsg = async (): Promise<void> => {
   var obj = JSON.stringify(balance);
   const res1 = await web.chat.postMessage({ channel: config.channelId, text: obj });
 
-  const orders = await dexapi.fetchOpenOrders(username);
+  let orders = [];
+  let i = 0;
+  while(true) {
+    const ordersList = await dexapi.fetchOpenOrders(username, 150, 150 * i);
+    if(!ordersList.length) break;
+    orders.push(...ordersList);
+    i++;
+  }
   obj = JSON.stringify(orders);
   const res2 = await web.chat.postMessage({ channel: config.channelId, text: obj });
   // `res` contains information about the posted message

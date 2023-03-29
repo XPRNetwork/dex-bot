@@ -1,7 +1,7 @@
 import { prepareLimitOrder, submitProcessAction, submitOrders } from "../dexrpc";
 import { TradeOrder, TradingStrategy } from "../interfaces";
 import * as dexapi from "../dexapi";
-import { getUsername, getLogger } from "../utils";
+import { getUsername } from "../utils";
 import { Market } from '@proton/wrap-constants';
 
 export interface MarketDetails {

@@ -7,10 +7,10 @@ import fetch from 'node-fetch';
 // https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
 const PRIVATE_KEY = 'private_key';
 // To cancel all orders eg: const marketSymbol = ''
-const marketSymbol = 'symbol';
+const marketSymbol = '';
 
 // Authorization
-const username = 'username';
+const username = 'accountname';
 const authorization = [
   {
     actor: username,
@@ -37,10 +37,10 @@ const fetchFromAPI = async (root, path, returnData = true) => {
   return responseJson;
 };
 
-const fetchOpenOrders = async (username) => {
+const fetchOpenOrders = async (username, limit = 150, offset = 0) => {
   const openOrders = await fetchFromAPI(
     apiRoot,
-    `/v1/orders/open?limit=250&offset=0&account=${username}`,
+    `/v1/orders/open?limit=${limit}&offset=${offset}&account=${username}`,
   );
   return openOrders;
 };
@@ -54,7 +54,7 @@ const transact = (actions) => api.transact(
   { actions },
   {
     blocksBehind: 300,
-    expireSeconds: 3000,
+    expireSeconds: 3600,
   },
 );
 
@@ -68,22 +68,17 @@ const createCancelAction = (orderId) => ({
   authorization,
 });
 
-const withdrawAction = () => ({
-  account: 'dex',
-  name: "withdrawall",
-  data: {
-      account: username,
-  },
-  authorization
-});
-
 const main = async () => {
   let cancelList = [];
-  const orders = await fetchOpenOrders(username);
+  let i = 0;
+  while(true) {
+    const ordersList = await fetchOpenOrders(username, 150, 150 * i);
+    if(!ordersList.length) break;
+    cancelList.push(...ordersList);
+    i++;
+  }
 
-  if (!marketSymbol) {
-    cancelList = orders;
-  } else {
+  if (marketSymbol) {
     const allMarkets = await fetchMarkets();
     const market = allMarkets.filter(
       (markets) => markets.symbol === marketSymbol,
@@ -91,7 +86,7 @@ const main = async () => {
     if (market === undefined) {
       throw new Error(`Market ${marketSymbol} does not exist`);
     }
-    const marketOrders = orders.filter(
+    const marketOrders = cancelList.filter(
       (orders) => orders.market_id === market[0].market_id,
     );
     if (!marketOrders.length) {
@@ -105,8 +100,7 @@ const main = async () => {
     return;
   }
   console.log(`Cancelling all (${cancelList.length}) orders`);
-  let actions = cancelList.map((order) => createCancelAction(order.order_id));
-  actions.push(withdrawAction());
+  const actions = cancelList.map((order) => createCancelAction(order.order_id));
   const response = await transact(actions);
   return response;
 };

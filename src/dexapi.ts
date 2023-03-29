@@ -36,8 +36,8 @@ export const fetchOrderBook = async (symbol: string, limit = 100, step = 100000)
  * @param {string} username - name of proton user/account to retrieve orders for
  * @returns  {Promise<array>} - list of all open orders
  */
-export const fetchOpenOrders = async (username: string): Promise<OrderHistory[]> => {
-  const openOrders = await fetchFromAPI<OrderHistory[]>(apiRoot, `/v1/orders/open?limit=250&offset=0&account=${username}`);
+export const fetchOpenOrders = async (username: string, limit = 250, offset = 0): Promise<OrderHistory[]> => {
+  const openOrders = await fetchFromAPI<OrderHistory[]>(apiRoot, `/v1/orders/open?limit=${limit}&offset=${offset}&account=${username}`);
   return openOrders;
 };
 

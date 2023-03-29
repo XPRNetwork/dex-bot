@@ -169,6 +169,7 @@ const withdrawAction = () => ({
   authorization,
 });
 
+
 /**
  * Cancel a single order
  */
@@ -182,14 +183,26 @@ export const cancelOrder = async (orderId: string): Promise<void> => {
  * Cancel all orders for the current account
  */
 export const cancelAllOrders = async (): Promise<void> => {
-  const orders = await dexapi.fetchOpenOrders(username);
-  if (!orders.length) {
-    logger.info('No orders to cancel');
-    return undefined;
+  try {
+    let cancelList = [];
+    let i = 0;
+    while(true) {
+      const ordersList = await dexapi.fetchOpenOrders(username, 150, 150 * i);
+      if(!ordersList.length) break;
+      cancelList.push(...ordersList);
+      i++;
+    }
+    if(!cancelList.length) {
+      console.log(`No orders to cancel`);
+      return;
+    }
+    console.log(`Cancelling all (${cancelList.length}) orders`);
+    const actions = cancelList.map((order) => createCancelAction(order.order_id));
+    const response = await transact(actions);
+    return response;
   }
-  logger.info(`Canceling all (${orders.length}) orders`);
-  let actions = orders.map((order) => createCancelAction(order.order_id));
-  actions.push(withdrawAction());
-  const response = await transact(actions);
-  return response;
+  catch (e) {
+    console.log('cancel orders error', e)
+    return undefined
+  }
 };
