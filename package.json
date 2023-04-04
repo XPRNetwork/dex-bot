@@ -19,7 +19,7 @@
     "order",
     "crypto"
   ],
-  "author": "Maura Wilder",
+  "author": "Pravin Battu",
   "license": "MIT",
   "dependencies": {
     "@proton/js": "^27.3.0",

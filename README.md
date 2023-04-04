@@ -1,13 +1,14 @@
 # dexbot
 
-This is the code for both market maker and grid trading bot strategies against the Proton DEX, https://protondex.com/.
+This is the code for both market maker and grid trading bot strategies against the Proton DEX - https://protondex.com/.
 
 [![ESLint SAST scan workflow](https://github.com/squdgy/dexbot/actions/workflows/eslint.yml/badge.svg?event=push)](https://github.com/squdgy/dexbot/security/code-scanning)
 
 ![Tests](https://github.com/squdgy/dexbot/actions/workflows/test.js.yml/badge.svg?event=push)
 
 GRID BOT:
-  Grid Trading Bots are programs that allow users to automatically buy low and sell high within a pre-set price range. When one sell order is fully executed, the Grid Trading Bot places a buy order in next round based timeinterval set in tool at a lower grid level, and vice versa. The Grid Trading strategy might perform best in volatile markets, making profits through a series of orders as a token’s price fluctuates.
+  Grid Trading Bots are programs that allow users to automatically buy at low and sell at high within a pre-set price range. When one sell order is fully executed, the Grid Trading Bot places a buy order in next round based on timeinterval set in tool at a lower grid level, and vice versa. The Grid Trading strategy might perform best in volatile markets, making profits through a series of orders as token’s price fluctuates.
+  
   Working Model:
     Bot automatically buys low and sells high based on the parameters you have set.
     
