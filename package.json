@@ -22,7 +22,7 @@
   "author": "Pravin Battu",
   "license": "MIT",
   "dependencies": {
-    "@proton/js": "^27.3.0",
+    "@proton/js": "^27.5.7",
     "@proton/light-api": "^3.3.3",
     "@proton/wrap-constants": "^0.2.68",
     "@slack/bolt": "^3.12.2",
