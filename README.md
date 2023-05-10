@@ -143,12 +143,12 @@ config/default.json has other config values you can change
   }
 }
 ```
-- **API and docs information**
-```
-  Site: https://protondex.com
-  Docs: https://docs.protondex.com
-  API Reference: https://api-docs.protondex.com
-```
+### API and docs information
+  Website: https://protondex.com. 
+  
+  Docs: https://docs.protondex.com. 
+  
+  API Reference: https://api-docs.protondex.com. 
 
 ## Actions available in this bot code base
 
