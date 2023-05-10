@@ -18,8 +18,8 @@ const authorization = [
   },
 ];
 
-const apiRoot = 'https://metallicus-dbapi-dev01.binfra.one/dex';
-const ENDPOINTS = ['https://protontestnet.greymass.com'];
+const apiRoot = 'https://testnet.api.protondex.com/dex';
+const ENDPOINTS = ['https://testnet-rpc.api.protondex.com'];
 // Initialize
 const rpc = new JsonRpc(ENDPOINTS);
 

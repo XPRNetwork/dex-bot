@@ -131,18 +131,23 @@ config/default.json has other config values you can change
 
       // endpoints for RPC API
       "endpoints" : [
-        "https://proton.greymass.com",
-        "https://proton.eoscafeblock.com"
+        "https://mainnet-rpc.api.protondex.com"
       ],
 
       // api for readonly dex api
-      "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
+      "apiRoot": "https://mainnet.api.protondex.com/dex",
 
       // api for readonly proton api
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
     }
   }
 }
+```
+- **API and docs information**
+```
+  Site: https://protondex.com
+  Docs: https://docs.protondex.com
+  API Reference: https://api-docs.protondex.com
 ```
 
 ## Actions available in this bot code base

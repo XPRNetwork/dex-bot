@@ -45,9 +45,9 @@
     "rpc": {
       "privateKeyPermission": "active",
       "endpoints" : [
-        "https://metal-proton-rpc.global.binfra.one"
+        "https://mainnet-rpc.api.protondex.com"
       ],
-      "apiRoot": "https://metal-dexdb.global.binfra.one/dex",
+      "apiRoot": "https://mainnet.api.protondex.com/dex",
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
     }
   }

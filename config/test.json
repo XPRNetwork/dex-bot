@@ -2,9 +2,9 @@
   "bot" : {
     "rpc": {
       "endpoints" : [
-        "https://protontestnet.greymass.com"
+        "https://testnet-rpc.api.protondex.com"
       ],
-      "apiRoot": "https://metallicus-dbapi-dev01.binfra.one/dex",
+      "apiRoot": "https://testnet.api.protondex.com/dex",
       "lightApiRoot": "https://testnet-lightapi.eosams.xeos.me/api"
     }
   }

@@ -18,8 +18,8 @@ const authorization = [
   },
 ];
 
-const apiRoot = 'https://metal-dexdb.global.binfra.one/dex';
-const ENDPOINTS = ['https://metal-proton-rpc.global.binfra.one'];
+const apiRoot = 'https://mainnet.api.protondex.com/dex';
+const ENDPOINTS = ['https://mainnet-rpc.api.protondex.com'];
 // Initialize
 const rpc = new JsonRpc(ENDPOINTS);
 
