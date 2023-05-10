@@ -1,7 +1,13 @@
 # dexbot
 
-This is the code for both market maker and grid trading bot strategies against the Proton DEX - https://protondex.com/.
-
+This is the code for both market maker and grid trading bot strategies against the Proton DEX 
+### API and docs information
+  Website: https://protondex.com. 
+  
+  Docs: https://docs.protondex.com. 
+  
+  API Reference: https://api-docs.protondex.com
+  
 [![ESLint SAST scan workflow](https://github.com/squdgy/dexbot/actions/workflows/eslint.yml/badge.svg?event=push)](https://github.com/squdgy/dexbot/security/code-scanning)
 
 ![Tests](https://github.com/squdgy/dexbot/actions/workflows/test.js.yml/badge.svg?event=push)
@@ -143,12 +149,6 @@ config/default.json has other config values you can change
   }
 }
 ```
-### API and docs information
-  Website: https://protondex.com. 
-  
-  Docs: https://docs.protondex.com. 
-  
-  API Reference: https://api-docs.protondex.com
 
 ## Actions available in this bot code base
 
