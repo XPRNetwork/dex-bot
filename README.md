@@ -29,7 +29,7 @@ GRID BOT:
     Note: The orders closet to the sale price would be elimiated on placing Initial orders.
 
 Market Maker BOT:
- This bot works against multiple markets to place orders bsed on levels defined in settings. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. This strategy doesn’t care about which way the market’s going. The strategy places a ladder of sells at regular intervals above base price, and another ladder of buys beneath it. Use this as a reference and implement yor own trading algorithm.
+ This bot works against multiple markets to place orders based on levels defined in settings. The purpose of the market making strategy is to put buy and sell orders on the DEX' order books. This strategy doesn’t care about which way the market’s going. The strategy places a ladder of sells at regular intervals above base price, and another ladder of buys beneath it. Use this as a reference and implement yor own trading algorithm.
 
 The bots has been tested on the mainnet with different pairs like XPR_XUSDC, XPR_XMD, and XETH_XMD etc. A new market can always be added under pairs section and restart bot to take effect.
 
@@ -150,7 +150,7 @@ config/default.json has other config values you can change
 }
 ```
 
-## Actions available in this bot code base
+## Below actions used in this bot code base
 
 ### Markets
 - **fetchLatestPrice** - retrieves the latest price for a given symbol
