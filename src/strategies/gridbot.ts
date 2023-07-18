@@ -81,10 +81,18 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
             const validOrder = new BN(
               Math.abs(parseFloat(price) - parseFloat(lastSalePrice))
             ).isGreaterThanOrEqualTo(+gridPrice / 2);
-        
+
+            const validBuyOrder = new BN(
+              (parseFloat(lastSalePrice) - parseFloat(price))
+            ).isGreaterThan(0);
+
+            const validSellOrder = new BN(
+              (parseFloat(price) - parseFloat(lastSalePrice))
+            ).isGreaterThan(0);
+
             // Prepare orders and push into a list
             if (validOrder) {
-              if (price > lastSalePrice) {
+              if (validSellOrder) {
                 const order = {
                   orderSide: ORDERSIDES.SELL,
                   price: +price,
@@ -93,7 +101,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 };
                 sellToken += quantity;
                 this.oldOrders[i].push(order);
-              } else if (price < lastSalePrice) {
+              } else if (validBuyOrder) {
                 const order = {
                   orderSide: ORDERSIDES.BUY,
                   price: +price,
