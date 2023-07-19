@@ -258,8 +258,8 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
     if (buyOrders.length === 0) return null;
     
     buyOrders.sort((orderA, orderB): number => {
-      if(BN(orderA.price) > BN(orderB.price)) return -1;
-      if(BN(orderA.price) < BN(orderB.price)) return 1;
+      if(BN(orderA.price).isGreaterThan(BN(orderB.price))) return -1;
+      if(BN(orderA.price).isLessThan(BN(orderB.price))) return 1;
       return 0
     });
   
@@ -272,8 +272,8 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
     if (sellOrders.length === 0) return null;
   
     sellOrders.sort((orderA, orderB): number => {
-      if(BN(orderA.price) > BN(orderB.price)) return 1;
-      if(BN(orderA.price) < BN(orderB.price)) return -1;
+      if(BN(orderA.price).isGreaterThan(BN(orderB.price))) return 1;
+      if(BN(orderA.price).isLessThan(BN(orderB.price))) return -1;
       return 0;
     });
   
