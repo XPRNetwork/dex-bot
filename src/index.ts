@@ -12,6 +12,7 @@ function delay(ms: number) {
 }
 
 const execTrade = async () => {
+  console.log('Bot is live');
   await currentStrategy.trade()
   await delay(config.tradeIntervalMS)
   execTrade()

@@ -29,10 +29,12 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
   async trade(): Promise<void> {
     for (var i = 0; i < this.pairs.length; i++) {
       try {
+        console.log("Checking for trades");
         const marketSymbol = this.pairs[i].symbol;
         const marketDetails = await this.getMarketDetails(marketSymbol);
         const { market } = marketDetails;
         if(!market) {
+          console.log('Invalid market');
           continue;
         }
         
