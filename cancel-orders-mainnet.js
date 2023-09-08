@@ -5,12 +5,12 @@ import fetch from 'node-fetch';
 // ***** Need to update PRIVATE_KEY, market id and username  ********
 // To export private key from your wallet, follow:
 // https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
-const PRIVATE_KEY = 'private_key';
+const PRIVATE_KEY = '5JsYG1B6UJjBDNaJWrQb9kjEiF6sw6dHZVx59AvRM84h5btHkVr';
 // To cancel all orders eg: const marketSymbol = '' : For specific pair set marketSymbol eg: const marketSymbol = 'XPR_XMD'
 const marketSymbol = '';
 
 // Authorization
-const username = 'accountname';
+const username = 'xpr.paul';
 const authorization = [
   {
     actor: username,

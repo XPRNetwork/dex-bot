@@ -19,6 +19,7 @@ export interface MarketMakerPair {
     gridInterval: number;
     base: number;
     orderSide: number;
+    bidAmountPerLevel: number;
 }
 
 export interface BotConfig {

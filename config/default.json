@@ -4,42 +4,64 @@
     "slackIntervalMS": "1000000",
     "slackBotToken": "",
     "channelId": "",
-    "cancelOpenOrdersOnExit": false,
-    "strategy": "gridBot",
+    "cancelOpenOrdersOnExit": true,
+    "strategy": "marketMaker",
     "marketMaker": {
       "pairs": [
         {
-          "symbol": "XPR_XUSDC",
+          "symbol": "XPR_XMD",
           "gridLevels": 4,
-          "gridInterval": 0.01,
+          "gridInterval": 0.005,
           "base": "BOTH",
-          "orderSide": "BOTH"
+          "orderSide": "BOTH",
+          "bidAmountPerLevel": 5 // amount in dollars
         }
       ]
     },
     "gridBot": {
       "pairs": [
         {
-          "symbol": "XBTC_XMD",
-          "upperLimit": 28000,
-          "lowerLimit": 19000,
-          "gridLevels": 50,
-          "bidAmountPerLevel": 0.0001
+          "symbol": "XPR_XMD",
+          "upperLimit": 0.0009000,
+          "lowerLimit": 0.0006000,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 40000
         },
         {
           "symbol": "XETH_XMD",
-          "upperLimit": 2300,
-          "lowerLimit": 1400,
-          "gridLevels": 10,
-          "bidAmountPerLevel": 0.001
+          "upperLimit": 1750.00,
+          "lowerLimit": 1550.00,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 0.025
         },
         {
-          "symbol": "XPR_XMD",
-          "upperLimit": 0.002,
-          "lowerLimit": 0.001,
-          "gridLevels": 50,
-          "bidAmountPerLevel": 1000
-        }
+          "symbol": "METAL_XMD",
+          "upperLimit": 0.070,
+          "lowerLimit": 0.050,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 420
+        },        
+        {
+          "symbol": "XDOGE_XMD",
+          "upperLimit": 0.070,
+          "lowerLimit": 0.050,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 200
+        },        
+        {
+          "symbol": "XHBAR_XMD",
+          "upperLimit": 0.080,
+          "lowerLimit": 0.040,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 100
+        },
+        {
+          "symbol": "XLTC_XMD",
+          "upperLimit": 80.000,
+          "lowerLimit": 40.000,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 0.25
+        }                
       ]
     },
     "rpc": {
