@@ -5,7 +5,7 @@
     "slackBotToken": "",
     "channelId": "",
     "cancelOpenOrdersOnExit": true,
-    "strategy": "marketMaker",
+    "strategy": "gridBot",
     "marketMaker": {
       "pairs": [
         {
@@ -14,7 +14,7 @@
           "gridInterval": 0.005,
           "base": "BOTH",
           "orderSide": "BOTH",
-          "bidAmountPerLevel": 5 // amount in dollars
+          "bidAmountPerLevel": 5
         }
       ]
     },
