@@ -65,6 +65,22 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     };
   }
 
+  private getBidAmountPerLevel(marketSymbol: string) {
+    let bidAmountPerLevel;
+
+    this.pairs.forEach((pair) => {
+      if (marketSymbol === pair.symbol){
+        bidAmountPerLevel = pair.bidAmountPerLevel;
+      }
+    })
+
+    if (bidAmountPerLevel === undefined) {
+      throw new Error(`Bid Amount option is missing for market ${marketSymbol} in default.json`);
+    }
+  
+    return bidAmountPerLevel;
+  }  
+
   private getGridInterval(marketSymbol: string) {
     let interval;
 
@@ -151,7 +167,12 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     const askPrecision = market.ask_token.precision;
     const bidPrecision = market.bid_token.precision;
     const bigMinSpread = new BN(this.getGridInterval(marketSymbol));
-    const minOrder = market.order_min;
+    const pair = this.pairs.find(p => p.symbol === marketSymbol);
+    if (!pair) {
+        return undefined;
+    }
+    const bidAmountPerLevel = new BN(pair.bidAmountPerLevel);
+    
   
     const lastSalePrice = new BN(marketDetails.price);
     const lowestAsk = new BN(marketDetails.lowestAsk);
@@ -180,7 +201,7 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
       .times(startPrice).decimalPlaces(askPrecision, BN.ROUND_DOWN);
     const { adjustedTotal } = this.getQuantityAndAdjustedTotal(
       buyPrice,
-      minOrder,
+      bidAmountPerLevel,
       bidPrecision,
       askPrecision,
     );
@@ -202,7 +223,11 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     const askPrecision = market.ask_token.precision;
     const bidPrecision = market.bid_token.precision;
     const bigMinSpread = new BN(this.getGridInterval(marketSymbol));
-    const minOrder = market.order_min;
+    const pair = this.pairs.find(p => p.symbol === marketSymbol);
+    if (!pair) {
+        return undefined;
+    }
+    const bidAmountPerLevel = new BN(pair.bidAmountPerLevel);
   
     const lastSalePrice = new BN(marketDetails.price);
     const lowestAsk = new BN(marketDetails.lowestAsk);
@@ -230,7 +255,7 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
       .times(startPrice).decimalPlaces(askPrecision, BN.ROUND_UP);
     const { quantity } = this.getQuantityAndAdjustedTotal(
       sellPrice,
-      minOrder,
+      bidAmountPerLevel,
       bidPrecision,
       askPrecision,
     );
@@ -260,3 +285,4 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     return type;
   }
 }
+
