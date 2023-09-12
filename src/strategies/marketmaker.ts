@@ -26,7 +26,7 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
  
   async trade() {
     for (let i = 0; i < this.pairs.length; ++i) {
-      logger.info(`${this.pairs.length}  Checking ${this.pairs[i].symbol} market maker orders on account ${this.username}`);
+      logger.info(`Checking ${this.pairs[i].symbol} market maker orders on account ${this.username}`);
 
       try {
         const openOrders = await this.getOpenOrders(this.pairs[i].symbol);
