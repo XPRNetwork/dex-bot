@@ -12,7 +12,7 @@
           "symbol": "XPR_XMD",
           "gridLevels": 20,
           "gridInterval": 0.005,
-          "base": "BOTH",
+          "base": "AVERAGE",
           "orderSide": "BOTH",
           "bidAmountPerLevel": 5
         },
