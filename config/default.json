@@ -4,17 +4,25 @@
     "slackIntervalMS": "1000000",
     "slackBotToken": "",
     "channelId": "",
-    "cancelOpenOrdersOnExit": true,
+    "cancelOpenOrdersOnExit": false,
     "strategy": "gridBot",
     "marketMaker": {
       "pairs": [
         {
           "symbol": "XPR_XMD",
-          "gridLevels": 4,
+          "gridLevels": 20,
           "gridInterval": 0.005,
           "base": "BOTH",
           "orderSide": "BOTH",
           "bidAmountPerLevel": 5
+        },
+        {
+          "symbol": "XBTC_XMD",
+          "gridLevels": 10,
+          "gridInterval": 0.005,
+          "base": "BID",
+          "orderSide": "BOTH",
+          "bidAmountPerLevel": 10
         }
       ]
     },

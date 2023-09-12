@@ -23,7 +23,7 @@ export abstract class TradingStrategyBase implements TradingStrategy {
   protected dexAPI = dexapi;
   protected username = getUsername();
 
-  protected async placeOrders(orders: TradeOrder[]): Promise<void> {
+  protected async placeOrders(orders: TradeOrder[], delayTime = 2000): Promise<void> {
     for(var i = 1; i <= orders.length; i++) {
         await prepareLimitOrder(
           orders[i-1].marketSymbol,
@@ -34,7 +34,7 @@ export abstract class TradingStrategyBase implements TradingStrategy {
       if(i%30 === 0 || i === orders.length) {
         await submitProcessAction();
         await submitOrders();
-        await delay(2000);
+        await delay(delayTime);
       };
     }
   }

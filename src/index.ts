@@ -52,7 +52,6 @@ const main = async () => {
       
       async function signalHandler() {
         await dexrpc.cancelAllOrders();
-        await delay(1000);
         process.exit();
       }
 
