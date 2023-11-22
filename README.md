@@ -1,6 +1,6 @@
 # dexbot
 
-This is the code for both market maker and grid trading bot strategies against the Proton DEX 
+This is the code for both market maker and grid trading bot strategies against the MetalX.com DEX
 ### API and docs information
   Website: https://metalx.com. 
 
@@ -160,7 +160,7 @@ config/default.json has other config values you can change
     const price = await fetchLatestPrice('XPR_XUSDC');
     logger.info(price);
 ```
-- **fetchMarkets** - retrieves all markets that exist on the proton dex
+- **fetchMarkets** - retrieves all markets that exist on metalx trading
 ```
     const response = await fetchMarkets();
     logger.info(response);
@@ -215,5 +215,5 @@ config/default.json has other config values you can change
 - basics for a simple limit order placement, including signing: [https://docs.metalx.com/developers-dex/examples/submit-dex-order](https://docs.metalx.com/developers-dex/examples/submit-dex-order)
 - instructions on finding your private key: https://help.xprnetwork.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
 - actions available on the DEX contract: https://docs.metalx.com/developers-dex/smart-contract/actions
-- general documentation on interacting with proton contracts: https://docs.xprnetwork.org/
+- general documentation on interacting with XPR Network contracts: https://docs.xprnetwork.org/
 - base version imported from https://github.com/squdgy/dexbot
