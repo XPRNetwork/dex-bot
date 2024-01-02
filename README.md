@@ -1,12 +1,14 @@
 # dexbot
 
-This is the code for both market maker and grid trading bot strategies against the Proton DEX 
+This is the code for both market maker and grid trading bot strategies against the MetalX.com DEX
 ### API and docs information
-  Website: https://protondex.com. 
+  Website: https://metalx.com. 
+
+  App: https://app.metalx.com
   
-  Docs: https://docs.protondex.com. 
+  Docs: https://docs.metalx.com. 
   
-  API Reference: https://api-docs.protondex.com
+  API Reference: https://docs.metalx.com/dex/what-is-metal-x
   
 [![ESLint SAST scan workflow](https://github.com/squdgy/dexbot/actions/workflows/eslint.yml/badge.svg?event=push)](https://github.com/squdgy/dexbot/security/code-scanning)
 
@@ -40,7 +42,7 @@ NOTE: User balance and open orders can be integrated to slack channel on running
 ## Getting Started
 
 ### prerequisites
-- a proton account (https://www.proton.org/wallet/)
+- an XPR Network account (You can use WebAuth.com from the app store or online [WebAuth.com](https://wauth.co)
 - enough funds in your account to buy and/or sell in the market that you want to trade in
 
 ### run the code
@@ -158,7 +160,7 @@ config/default.json has other config values you can change
     const price = await fetchLatestPrice('XPR_XUSDC');
     logger.info(price);
 ```
-- **fetchMarkets** - retrieves all markets that exist on the proton dex
+- **fetchMarkets** - retrieves all markets that exist on metalx trading
 ```
     const response = await fetchMarkets();
     logger.info(response);
@@ -210,8 +212,8 @@ config/default.json has other config values you can change
 ```
 
 ### coding references
-- basics for a simple limit order placement, including signing: [https://www.docs.protondex.com/developers-dex/submit-dex-order](https://docs.protondex.com/developers-dex/examples/submit-dex-order)
-- instructions on finding your private key: https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
-- actions available on the DEX contract: https://www.docs.protondex.com/developers-dex/actions
-- general documentation on interacting with proton contracts: https://docs.protonchain.com/built-with-proton.html#sdks
+- basics for a simple limit order placement, including signing: [https://docs.metalx.com/developers-dex/examples/submit-dex-order](https://docs.metalx.com/developers-dex/examples/submit-dex-order)
+- instructions on finding your private key: https://help.xprnetwork.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
+- actions available on the DEX contract: https://docs.metalx.com/developers-dex/smart-contract/actions
+- general documentation on interacting with XPR Network contracts: https://docs.xprnetwork.org/
 - base version imported from https://github.com/squdgy/dexbot
