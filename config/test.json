@@ -4,7 +4,7 @@
       "endpoints" : [
         "https://testnet-rpc.api.protondex.com"
       ],
-      "apiRoot": "https://testnet.api.protondex.com/dex",
+      "apiRoot": "https://dex.api.testnet.metalx.com/dex",
       "lightApiRoot": "https://testnet-lightapi.eosams.xeos.me/api"
     }
   }
