@@ -43,7 +43,19 @@ const transact = async (actions: OrderAction[]) => {
     permission: privateKeyPermission,
   }];
   const authorizedActions = actions.map((action) => ({ ...action, authorization }));
-  await apiTransact(authorizedActions);
+  let times = 5;
+  try {
+    await apiTransact(authorizedActions);
+  }
+  catch {
+    if (times > 0) {
+      times--;
+      logger.info(`Retrying RPC API`);
+      await apiTransact(authorizedActions);
+    } else {
+      throw Error;
+    }
+  }
 };
 
 /**

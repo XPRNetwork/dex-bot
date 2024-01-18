@@ -75,6 +75,7 @@
     "rpc": {
       "privateKeyPermission": "active",
       "endpoints" : [
+        "https://rpc.api.mainnet.metalx.com",
         "https://mainnet-rpc.api.protondex.com"
       ],
       "apiRoot": "https://dex.api.mainnet.metalx.com/dex",
