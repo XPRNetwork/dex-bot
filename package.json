@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "bot": "ts-node ./src/index.ts",
+    "bot": "tsc --noEmit && node --no-warnings=ExperimentalWarning --loader ts-node/esm ./src/index.ts",
     "bot:test": "cross-env NODE_ENV=test npm run bot",
     "lint": "eslint . --ext .js",
     "lint:fix": "eslint . --fix --ext .js",
