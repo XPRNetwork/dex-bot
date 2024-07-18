@@ -77,6 +77,9 @@ config/default.json has other config values you can change
     // set to true in order to cancel all open orders when the bot shuts down
     "cancelOpenOrdersOnExit": false,
 
+    // Enable this to true if you want to place orders always one level above/below depends on buy/sell order for the executed orders 
+    "gridPlacement": true,
+
     // strategy to be applied, marketmaker or gridbot
     "strategy": "gridBot",
     "marketMaker": {
