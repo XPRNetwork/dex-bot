@@ -9,14 +9,43 @@ const { lightApiRoot } = getConfig().rpc;
 /**
  * Generic GET request to one of the APIs
  */
-const fetchFromAPI = async <T>(root: string, path: string, returnData = true): Promise<T> => {
-  const response = await fetch(`${root}${path}`);
-  const responseJson = await response.json() as any;
-  if (returnData) {
-    return responseJson.data as T;
+const fetchFromAPI = async <T>(root: string, path: string, returnData = true, times = 3): Promise<T> => {
+  try {
+    const response = await fetch(`${root}${path}`);
+    const responseJson = await response.json() as any;
+    if (returnData) {
+      return responseJson.data as T;
+    }
+    return responseJson;
   }
-  return responseJson;
+  catch {
+    if (times > 0) {
+      times--;
+      await fetchFromAPI(root, path, returnData, times);
+    } else {
+      throw new Error(" Not able to reach API server");
+    }
+  }
+  return {} as T;
 };
+
+// export async const fetchFromAPI = async <T>(root: string, path: string, returnData = true, retries: number): Promise<T> => {
+//   fetch(`${root}${path}`)
+//     .then(res => {
+//       if (res.ok) {
+//         const responseJson = await res.json() as any;
+//         if (returnData) {
+//           return responseJson.data as T;
+//         }
+//         return responseJson;
+//       }
+//       if (retries > 0) {
+//         return fetchFromAPI(root, path, returnData, retries)
+//       }
+//       throw new Error()
+//     })
+//     .catch(error => console.error(error.message))
+//   }
 
 export const fetchMarkets = async (): Promise<Market[]> => {
   const marketData = await fetchFromAPI<Market[]>(apiRoot, '/v1/markets/all');

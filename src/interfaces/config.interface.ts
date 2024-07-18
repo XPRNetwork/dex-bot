@@ -28,6 +28,7 @@ export interface BotConfig {
     slackBotToken: string;
     channelId: string;
     cancelOpenOrdersOnExit: boolean;
+    gridPlacement: boolean;
     strategy: 'gridBot' | 'marketMaker';
     marketMaker: {
         pairs: MarketMakerPair[];

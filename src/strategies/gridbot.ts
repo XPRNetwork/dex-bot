@@ -2,11 +2,12 @@
 import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
 import { BotConfig, GridBotPair, TradeOrder, TradingStrategy } from '../interfaces';
-import { configValueToFloat, configValueToInt, getLogger, getUsername } from '../utils';
+import { configValueToFloat, configValueToInt, getConfig, getLogger, getUsername } from '../utils';
 import { TradingStrategyBase } from './base';
 import { fetchTokenBalance } from '../dexapi';
 
 const logger = getLogger();
+const config = getConfig();
 
 /**
  * Grid Trading Bot Strategy
@@ -145,7 +146,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 const lowestAsk = this.getLowestAsk(currentOrders);
                 var sellPrice;
                 // Place a counter sell order for the executed buy order
-                if (!lowestAsk)
+                if (!lowestAsk || config.gridPlacement)
                   sellPrice = new BN(this.oldOrders[i][j].price)
                     .plus(gridPrice)
                     .toFixed(askPrecision);
@@ -171,7 +172,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 const highestBid = this.getHighestBid(currentOrders);
                 // Place a counter buy order for the executed sell order
                 var buyPrice;
-                if (!highestBid)
+                if (!highestBid || config.gridPlacement)
                   buyPrice = new BN(this.oldOrders[i][j].price)
                     .minus(gridPrice)
                     .toFixed(askPrecision);

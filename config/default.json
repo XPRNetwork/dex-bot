@@ -5,6 +5,7 @@
     "slackBotToken": "",
     "channelId": "",
     "cancelOpenOrdersOnExit": false,
+    "gridPlacement": true,
     "strategy": "gridBot",
     "marketMaker": {
       "pairs": [
