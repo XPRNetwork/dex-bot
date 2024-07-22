@@ -130,7 +130,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           if (this.oldOrders[i].length <= maxGrids) {
             await this.placeOrders(this.oldOrders[i]);
           }
-        } else if (openOrders.length > 0) {
+        } else if (openOrders.length > 0 && openOrders.length < gridLevels) {
           // compare open orders with old orders and placce counter orders for the executed orders
           let currentOrders: TradeOrder[] = openOrders.map((order) => ({
             orderSide: order.order_side,
