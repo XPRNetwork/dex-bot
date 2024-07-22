@@ -126,8 +126,10 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
             logger.info(` Overdrawn Balance - Not placing orders for ${market.bid_token.code}-${market.ask_token.code} `);
             continue;
           }
-
-          await this.placeOrders(this.oldOrders[i]);
+          // Makesure to place only maxGrids order, as there is a possibility to place 1 additional order because of the non divisible configuration
+          if (this.oldOrders[i].length <= maxGrids) {
+            await this.placeOrders(this.oldOrders[i]);
+          }
         } else if (openOrders.length > 0) {
           // compare open orders with old orders and placce counter orders for the executed orders
           let currentOrders: TradeOrder[] = openOrders.map((order) => ({
