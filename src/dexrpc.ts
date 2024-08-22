@@ -116,7 +116,7 @@ export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSI
           contract: askToken.contract,
         },
         trigger_price: 0,
-        fill_type: FILLTYPES.POST_ONLY,
+        fill_type: FILLTYPES.GTC,
         referrer: '',
       },
       authorization,

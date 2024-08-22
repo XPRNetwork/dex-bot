@@ -60,6 +60,9 @@ const main = async () => {
       process.on('SIGQUIT', signalHandler)
     }
     
+    await currentStrategy.trade()
+    logger.info(`Waiting for few seconds before fetching the placed orders`);
+    await delay(15000)
     execTrade()
     execSlack()
   } catch (error) {
