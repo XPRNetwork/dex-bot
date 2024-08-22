@@ -31,7 +31,7 @@ export abstract class TradingStrategyBase implements TradingStrategy {
           orders[i-1].quantity,
           orders[i-1].price
       );
-      if(i%20 === 0 || i === orders.length) {
+      if(i%10 === 0 || i === orders.length) {
         await submitProcessAction();
         await submitOrders();
         await delay(delayTime);

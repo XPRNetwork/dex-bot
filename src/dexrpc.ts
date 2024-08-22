@@ -43,17 +43,20 @@ const transact = async (actions: OrderAction[]) => {
     permission: privateKeyPermission,
   }];
   const authorizedActions = actions.map((action) => ({ ...action, authorization }));
-  let times = 5;
-  try {
-    await apiTransact(authorizedActions);
-  }
-  catch {
-    if (times > 0) {
-      times--;
-      logger.info(`Retrying RPC API`);
+  const maxRetries = 3;
+  let attempts = 0;
+  while(attempts < maxRetries) {
+    try {
       await apiTransact(authorizedActions);
-    } else {
-      throw Error;
+      break;
+    }
+    catch {
+      attempts++;
+      if (attempts >= maxRetries) {
+        logger.error(`Failed after ${maxRetries} attempts`);
+        throw Error;
+      }
+      logger.info(`Retrying RPC connection`);
     }
   }
 };
