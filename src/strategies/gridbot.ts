@@ -58,7 +58,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
         let latestOrders = [];
         const username = getUsername();
 
-        if (!this.oldOrders[i].length || !openOrders.length) {
+        if (!this.oldOrders[i].length) {
           // Place orders on bot initialization
           let index = 0;
           let maxGrids = gridLevels;
