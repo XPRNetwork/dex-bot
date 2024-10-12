@@ -462,7 +462,7 @@ async function fetchAndStoreHistoricalData() {
       }
 
       // Wait for 10 seconds to avoid rate limiting
-      await delay(20000);
+      await delay(10000);
     }
   } catch (error) {
     log(LogLevel.ERROR, `Failed to fetch historical data: ${error.message}`);
@@ -471,9 +471,9 @@ async function fetchAndStoreHistoricalData() {
 
 // Function to get the latest data from the database
 async function getLatestData() {
-  // Get the latest market data (limit to the top 5 entries)
+  // Get the latest market data
   const marketData = await db.all(
-    `SELECT * FROM market_data ORDER BY timestamp DESC LIMIT 5`
+    `SELECT * FROM market_data ORDER BY timestamp DESC`
   );
 
   // Get the latest fear and greed index
@@ -486,9 +486,9 @@ async function getLatestData() {
     `SELECT * FROM balances ORDER BY timestamp DESC`
   );
 
-  // Get recent trades (limit to the last 5 trades)
+  // Get recent trades
   const trades = await db.all(
-    `SELECT * FROM trades ORDER BY timestamp DESC LIMIT 5`
+    `SELECT * FROM trades ORDER BY timestamp DESC`
   );
 
   // Get summarized historical prices
@@ -523,24 +523,66 @@ async function getLatestData() {
   };
 }
 
+// Function to calculate the total portfolio value in XMD
+async function calculatePortfolioValue() {
+  const balances = await db.all(
+    `SELECT * FROM balances ORDER BY timestamp DESC`
+  );
+
+  let totalValueXMD = 0;
+
+  for (const balance of balances) {
+    const tokenCode = balance.token_code;
+    const amount = parseFloat(balance.balance);
+
+    if (tokenCode === 'XMD') {
+      totalValueXMD += amount;
+    } else {
+      // Get the latest price of the token in XMD
+      const marketSymbol = `${tokenCode}_XMD`;
+      const marketData = await db.get(
+        `SELECT * FROM market_data WHERE symbol = ? ORDER BY timestamp DESC LIMIT 1`,
+        [marketSymbol]
+      );
+
+      if (marketData) {
+        const price = marketData.close;
+        totalValueXMD += amount * price;
+      } else {
+        // If market data is not available, skip
+        continue;
+      }
+    }
+  }
+
+  return totalValueXMD;
+}
+
 async function getAIDecision() {
   log(LogLevel.INFO, 'Fetching AI decision...');
 
   // Get the latest data
   const data = await getLatestData();
 
-  // Prepare the data as a JSON string
-  const dataString = JSON.stringify(data, null, 2);
+  // Calculate the portfolio value
+  const portfolioValue = await calculatePortfolioValue();
 
-  const prompt = `Based on the following data, decide which orders to place to maximize XMD holdings. Analyze the historical price trends to inform your decision.
+  // Prepare the data as a JSON string
+  const dataString = JSON.stringify({ ...data, portfolioValue }, null, 2);
+
+  // Prepare the prompt with constraints
+  const prompt = `Based on the following data, decide which orders to place to maximize the overall portfolio value. Analyze the historical price trends and consider previous trades to inform your decision.
 
   Data:
   ${dataString}
   
   Constraints:
   - The maximum trade size is ${MAX_TRADE_SIZE} XMD (total trade value in XMD).
-  - Do not suggest trades where the total value exceeds this amount.
-  - Ensure the suggested amount does not exceed the available balance.
+  - Aim to suggest trades where the total value is as close as possible to this amount without exceeding it.
+  - Calculate the amount to maximize up to the maximum trade size, considering the current price and available balance.
+  - Ensure that the total trade value is less than or equal to ${MAX_TRADE_SIZE} XMD after rounding, considering token precision.
+  - Round down the amount if necessary to meet the maximum trade size constraint.
+  - Ensure the suggested amount does not exceed the available balance, which is provided in the data.
   - The minimum order size is 1.0 XMD.
   - You can trade in any available market listed in the data.
   - All amounts should be in the correct decimal format for the respective tokens.
@@ -548,18 +590,21 @@ async function getAIDecision() {
   - Important: Market symbols are in the format BASE_QUOTE (e.g., XPR_XMD).
     - "Buy" action means buying the BASE asset using the QUOTE asset.
     - "Sell" action means selling the BASE asset to receive the QUOTE asset.
-  - Since our goal is to maximize XMD holdings, suggest actions that result in increasing XMD balance.
+  - Since our goal is to maximize the overall portfolio value, suggest actions that you expect will increase the total value of the portfolio.
+  - Consider your previous trades and their outcomes when making decisions.
+  - If satisfied with current positions, you can choose to skip placing new orders.
+  - You can set limit orders (buy or sell) at prices you predict based on historical trends.
   
   Provide your decision in the following format:
   
-  Action: <buy/sell>
-  Market: <market_symbol>
-  Price: <price>
-  Amount: <amount of BASE asset>
+  Action: <buy/sell/skip>
+  Market: <market_symbol> (if applicable)
+  Price: <price> (if applicable)
+  Amount: <amount of BASE asset> (if applicable)
+  Order Type: <market/limit> (specify if it's a limit order)
   Reason: <brief_reason>
   
-  Do not include any additional text.`;
-  
+  Do not include any additional text.`;  
 
   // Call the OpenAI API
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -574,14 +619,14 @@ async function getAIDecision() {
         {
           role: 'system',
           content:
-            'You are an AI trading assistant that makes trading decisions to maximize XMD holdings. Use the provided data to make informed decisions within the given constraints.',
+            'You are an AI trading assistant that makes trading decisions to maximize the overall portfolio value. Use the provided data to make informed decisions within the given constraints.',
         },
         {
           role: 'user',
           content: prompt,
         },
       ],
-      max_tokens: 500,
+      max_tokens: 700,
       n: 1,
       stop: null,
       temperature: 0.5,
@@ -606,18 +651,27 @@ function parseAIDecision(aiResponse) {
   const actionBlocks = aiResponse.split(/Action:/i).slice(1); // Split the response into blocks for each action
 
   for (const block of actionBlocks) {
-    const actionMatch = block.match(/^\s*(buy|sell)/i);
+    const actionMatch = block.match(/^\s*(buy|sell|skip)/i);
     const marketMatch = block.match(/Market:\s*([\w_]+)/);
     const priceMatch = block.match(/Price:\s*(\d+(\.\d+)?)/);
     const amountMatch = block.match(/Amount:\s*(\d+(\.\d+)?)/);
+    const orderTypeMatch = block.match(/Order Type:\s*(\w+)/i);
     const reasonMatch = block.match(/Reason:\s*(.+)/);
 
-    if (actionMatch && marketMatch && priceMatch && amountMatch && reasonMatch) {
+    const action = actionMatch ? actionMatch[1].toLowerCase() : null;
+
+    if (action === 'skip') {
+      actions.push({ action: 'skip' });
+      continue;
+    }
+
+    if (action && marketMatch && priceMatch && amountMatch && reasonMatch) {
       actions.push({
-        action: actionMatch[1].toLowerCase(),
+        action,
         market: marketMatch[1],
         price: parseFloat(priceMatch[1]),
         amount: parseFloat(amountMatch[1]),
+        orderType: orderTypeMatch ? orderTypeMatch[1].toLowerCase() : 'market',
         reason: reasonMatch[1].trim(),
       });
     } else {
@@ -695,80 +749,104 @@ const FILLTYPES = {
 
 // Function to execute trade based on AI decision
 async function executeTrade(decision) {
-    // Validate the decision
-    if (!ALLOWED_MARKETS.includes(decision.market)) {
-      log(LogLevel.WARNING, `Market ${decision.market} is not in the allowed list.`);
-      return;
-    }
-  
-    if (MARKETS_TO_AVOID.includes(decision.market)) {
-      log(LogLevel.WARNING, `Market ${decision.market} is in the avoid list.`);
-      return;
-    }
-  
-    // Fetch the latest balances
-    await fetchAndStoreBalances();
-  
-    // Get market details
-    const marketDetails = await getMarketDetails(decision.market);
-    if (!marketDetails) {
-      log(LogLevel.ERROR, `Market ${decision.market} not found.`);
-      return;
-    }
-  
-    // Check for existing open orders in this market
-    const openOrders = await fetchOpenOrders(marketDetails.market_id);
-    if (openOrders.length >= MAX_ORDERS_PER_MARKET) {
-      log(LogLevel.INFO, `Already have an open order in market ${decision.market}. Skipping new order.`);
-      return;
-    }
-  
-    // Fetch balances for base and quote assets
-    const baseToken = marketDetails.bid_token;
-    const quoteToken = marketDetails.ask_token;
-  
-    const baseTokenCode = baseToken.code;
-    const quoteTokenCode = quoteToken.code;
-  
-    const baseTokenBalanceRow = await db.get(
-      `SELECT balance FROM balances WHERE token_code = ? ORDER BY timestamp DESC LIMIT 1`,
-      [baseTokenCode]
-    );
-    const quoteTokenBalanceRow = await db.get(
-      `SELECT balance FROM balances WHERE token_code = ? ORDER BY timestamp DESC LIMIT 1`,
-      [quoteTokenCode]
-    );
-  
-    const baseTokenBalance = baseTokenBalanceRow ? parseFloat(baseTokenBalanceRow.balance) : 0.0;
-    const quoteTokenBalance = quoteTokenBalanceRow ? parseFloat(quoteTokenBalanceRow.balance) : 0.0;
-  
-    // Calculate total cost for buy and sell actions
-    let totalCost = decision.amount * decision.price;
-  
-    // Check if the total trade value exceeds the maximum trade size
-    if (totalCost > MAX_TRADE_SIZE) {
-      // Adjust the amount downwards to meet MAX_TRADE_SIZE
-      decision.amount = Math.floor((MAX_TRADE_SIZE / decision.price) * 10 ** baseToken.precision) / 10 ** baseToken.precision;
+  // If the decision is to skip, return
+  if (decision.action === 'skip') {
+    log(LogLevel.INFO, 'AI decided to skip this round.');
+    return;
+  }
+
+  // Validate the decision
+  if (!ALLOWED_MARKETS.includes(decision.market)) {
+    log(LogLevel.WARNING, `Market ${decision.market} is not in the allowed list.`);
+    return;
+  }
+
+  if (MARKETS_TO_AVOID.includes(decision.market)) {
+    log(LogLevel.WARNING, `Market ${decision.market} is in the avoid list.`);
+    return;
+  }
+
+  // Fetch the latest balances
+  await fetchAndStoreBalances();
+
+  // Get market details
+  const marketDetails = await getMarketDetails(decision.market);
+  if (!marketDetails) {
+    log(LogLevel.ERROR, `Market ${decision.market} not found.`);
+    return;
+  }
+
+  // Check for existing open orders in this market
+  const openOrders = await fetchOpenOrders(marketDetails.market_id);
+  if (openOrders.length >= MAX_ORDERS_PER_MARKET) {
+    log(LogLevel.INFO, `Already have an open order in market ${decision.market}. Skipping new order.`);
+    return;
+  }
+
+  // Fetch balances for base and quote assets
+  const baseToken = marketDetails.bid_token;
+  const quoteToken = marketDetails.ask_token;
+
+  const baseTokenCode = baseToken.code;
+  const quoteTokenCode = quoteToken.code;
+
+  const baseTokenBalanceRow = await db.get(
+    `SELECT balance FROM balances WHERE token_code = ? ORDER BY timestamp DESC LIMIT 1`,
+    [baseTokenCode]
+  );
+  const quoteTokenBalanceRow = await db.get(
+    `SELECT balance FROM balances WHERE token_code = ? ORDER BY timestamp DESC LIMIT 1`,
+    [quoteTokenCode]
+  );
+
+  const baseTokenBalance = baseTokenBalanceRow ? parseFloat(baseTokenBalanceRow.balance) : 0.0;
+  const quoteTokenBalance = quoteTokenBalanceRow ? parseFloat(quoteTokenBalanceRow.balance) : 0.0;
+
+  // Calculate total cost for buy and sell actions
+  let totalCost = decision.amount * decision.price;
+
+  // Calculate the maximum amount based on MAX_TRADE_SIZE
+  const maxAmount = Math.floor((MAX_TRADE_SIZE / decision.price) * 10 ** baseToken.precision) / 10 ** baseToken.precision;
+
+  // Adjust the amount to maximize up to MAX_TRADE_SIZE
+  if (totalCost < MAX_TRADE_SIZE) {
+    const adjustedAmount = Math.min(maxAmount, baseTokenBalance);
+    if (adjustedAmount > decision.amount) {
+      decision.amount = adjustedAmount;
       totalCost = decision.amount * decision.price;
-      log(LogLevel.INFO, `Adjusted trade amount to ${decision.amount.toFixed(baseToken.precision)} to meet MAX_TRADE_SIZE.`);
+      log(LogLevel.INFO, `Adjusted trade amount to maximize trade size: ${decision.amount.toFixed(baseToken.precision)} ${baseTokenCode}.`);
     }
-  
-    // Check if the trade amount exceeds the available balance
-    if (decision.action === 'buy' && totalCost > quoteTokenBalance) {
-      log(LogLevel.WARNING, `Insufficient ${quoteTokenCode} balance for the trade.`);
-      return;
-    }
-  
-    if (decision.action === 'sell' && decision.amount > baseTokenBalance) {
-      log(LogLevel.WARNING, `Insufficient ${baseTokenCode} balance for the trade.`);
-      return;
-    }
-  
-    // Ensure minimum order size is met (1.0 XMD)
-    if (totalCost < 1.0) {
-      log(LogLevel.WARNING, `Trade total (${totalCost.toFixed(4)} XMD) is below the minimum order size of 1.0 XMD.`);
-      return;
-    }
+  }
+
+  // Check if the total trade value exceeds the maximum trade size
+  if (totalCost > MAX_TRADE_SIZE) {
+    // Adjust the amount downwards to meet MAX_TRADE_SIZE
+    decision.amount = Math.floor((MAX_TRADE_SIZE / decision.price) * 10 ** baseToken.precision) / 10 ** baseToken.precision;
+    totalCost = decision.amount * decision.price;
+    log(LogLevel.INFO, `Adjusted trade amount to ${decision.amount.toFixed(baseToken.precision)} to meet MAX_TRADE_SIZE.`);
+  }
+
+  // Adjust trade amount based on available balance
+  if (decision.action === 'sell' && decision.amount > baseTokenBalance) {
+    decision.amount = Math.floor(baseTokenBalance * 10 ** baseToken.precision) / 10 ** baseToken.precision;
+    totalCost = decision.amount * decision.price;
+    log(LogLevel.INFO, `Adjusted trade amount to available balance: ${decision.amount.toFixed(baseToken.precision)} ${baseTokenCode}.`);
+  }
+
+  if (decision.action === 'buy' && totalCost > quoteTokenBalance) {
+    totalCost = quoteTokenBalance;
+    decision.amount = Math.floor((totalCost / decision.price) * 10 ** baseToken.precision) / 10 ** baseToken.precision;
+    log(LogLevel.INFO, `Adjusted trade amount to available balance: ${decision.amount.toFixed(baseToken.precision)} ${baseTokenCode}.`);
+  }
+
+  // Ensure minimum order size is met (1.0 XMD)
+  if (totalCost < 1.0) {
+    log(LogLevel.WARNING, `Trade total (${totalCost.toFixed(4)} XMD) is below the minimum order size of 1.0 XMD.`);
+    return;
+  }
+
+  // Set orderType to ORDERTYPES.LIMIT (value 1)
+  const orderType = ORDERTYPES.LIMIT;
 
   // Prepare the transaction
   const dexContract = 'dex'; // DEX contract account
@@ -780,13 +858,22 @@ async function executeTrade(decision) {
   const quantity = parseFloat(decision.action === 'sell' ? decision.amount : totalCost).toFixed(tokenPrecision);
   const quantityText = `${quantity} ${tokenCode}`;
 
-  // Normalize quantity and price
+  // Normalize quantity
   const bnQuantity = new BigNumber(decision.action === 'sell' ? decision.amount : totalCost);
   const quantityNormalized = bnQuantity.multipliedBy(tokenMultiplier).toFixed(0);
 
-  const priceMultiplier = quoteToken.multiplier;
-  const cPrice = new BigNumber(decision.price);
-  const priceNormalized = cPrice.multipliedBy(priceMultiplier).toFixed(0);
+  // Set price and trigger_price based on order type
+  let priceNormalized = '0';
+  let triggerPriceNormalized = '0';
+
+  if (orderType === ORDERTYPES.LIMIT) {
+    const priceMultiplier = quoteToken.multiplier;
+    const cPrice = new BigNumber(decision.price);
+    priceNormalized = cPrice.multipliedBy(priceMultiplier).toFixed(0);
+  }
+
+  // For limit orders, trigger_price is 0 unless placing a stop order
+  triggerPriceNormalized = '0';
 
   const orderSide = decision.action === 'buy' ? ORDERSIDES.BUY : ORDERSIDES.SELL;
 
@@ -831,7 +918,7 @@ async function executeTrade(decision) {
       data: {
         market_id: marketDetails.market_id,
         account: USERNAME,
-        order_type: ORDERTYPES.LIMIT,
+        order_type: orderType,
         order_side: orderSide,
         fill_type: FILLTYPES.GTC,
         bid_symbol: bidSymbol,
@@ -839,7 +926,7 @@ async function executeTrade(decision) {
         referrer: '',
         quantity: quantityNormalized,
         price: priceNormalized,
-        trigger_price: '0',
+        trigger_price: triggerPriceNormalized,
       },
     },
     // Process action
@@ -908,7 +995,7 @@ async function executeTrade(decision) {
 
     // Position tracking
     if (decision.action === 'sell') {
-      // Open a new position (since we're selling base asset to get XMD)
+      // Open a new position (since we're selling base asset)
       await db.run(
         `INSERT INTO positions (open_trade_id, market, amount, open_price) VALUES (?, ?, ?, ?)`,
         [tradeId, decision.market, decision.amount, decision.price]
@@ -921,8 +1008,8 @@ async function executeTrade(decision) {
       );
 
       if (openPosition) {
-        const profitLoss = (openPosition.open_price - decision.price) * decision.amount;
-        const percentageChange = ((openPosition.open_price - decision.price) / openPosition.open_price) * 100;
+        const profitLoss = (decision.price - openPosition.open_price) * decision.amount;
+        const percentageChange = ((decision.price - openPosition.open_price) / openPosition.open_price) * 100;
 
         // Update the position
         await db.run(
@@ -945,6 +1032,7 @@ Open Price: ${openPosition.open_price}
 Close Price: ${decision.price}
 Profit/Loss: ${profitLoss.toFixed(4)}
 Percentage Change: ${percentageChange.toFixed(2)}%
+Reason: ${decision.reason}
 `;
         sendTelegramMessage(message);
       } else {
@@ -952,8 +1040,9 @@ Percentage Change: ${percentageChange.toFixed(2)}%
       }
     }
 
+    // Send Telegram message with Reason included
     sendTelegramMessage(
-      `Trade executed: ${decision.action.toUpperCase()} ${decision.amount} ${baseTokenCode} in ${decision.market} at ${decision.price}.`
+      `Trade executed: ${decision.action.toUpperCase()} ${decision.amount} ${baseTokenCode} in ${decision.market} at ${decision.price}.\nReason: ${decision.reason}`
     );
 
   } catch (error) {
@@ -964,7 +1053,7 @@ Percentage Change: ${percentageChange.toFixed(2)}%
     }
     log(LogLevel.ERROR, `Trade execution failed: ${errorMessage}`);
     sendTelegramMessage(
-      `Trade failed: ${decision.action.toUpperCase()} ${decision.amount} ${baseTokenCode} in ${decision.market} at ${decision.price}. Error: ${errorMessage}`
+      `Trade failed: ${decision.action.toUpperCase()} ${decision.amount} ${baseTokenCode} in ${decision.market} at ${decision.price}.\nReason: ${decision.reason}\nError: ${errorMessage}`
     );
     await db.run(
       `INSERT INTO trades (action, market, price, amount, reason, success) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -979,6 +1068,7 @@ Percentage Change: ${percentageChange.toFixed(2)}%
     );
   }
 }
+
 
 // Function to execute the agent's main logic
 async function executeAgent() {
@@ -1024,7 +1114,7 @@ async function executeAgent() {
       } else {
         // Prompt for confirmation
         const confirmation = await promptInput(
-          `Do you want to execute the following trade?\nAction: ${decision.action.toUpperCase()}\nMarket: ${decision.market}\nPrice: ${decision.price}\nAmount: ${decision.amount}\nReason: ${decision.reason}\n(yes/no): `
+          `Do you want to execute the following trade?\nAction: ${decision.action.toUpperCase()}\nMarket: ${decision.market}\nPrice: ${decision.price}\nAmount: ${decision.amount}\nOrder Type: ${decision.orderType}\nReason: ${decision.reason}\n(yes/no): `
         );
         if (confirmation.toLowerCase() === 'yes') {
           await executeTrade(decision);

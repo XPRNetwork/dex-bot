@@ -450,3 +450,353 @@ Reason: Selling XPR to increase XMD holdings as XPR_XMD shows a negative trend a
 [2024-10-12T19:37:30.585Z] [INFO] Trade executed successfully: 62d600ca09dcc6fc5b8567849df949625868e9456182352a2ac09d4374aa4c23
 [2024-10-12T19:37:30.618Z] [INFO] Waiting for 180 seconds before the next run...
 
+[2024-10-12T19:46:59.928Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
+[2024-10-12T19:47:00.701Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:47:01.376Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:47:02.198Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:47:02.205Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:47:02.214Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:47:02.220Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:47:02.226Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:47:02.235Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:47:02.241Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:47:02.248Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:47:02.254Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:47:02.255Z] [INFO] Fetching AI decision...
+[2024-10-12T19:47:04.329Z] [INFO] AI Decision:
+Action: sell  
+Market: XPR_XMD  
+Price: 0.000782  
+Amount: 10000  
+Order Type: market  
+Reason: Continue selling XPR to increase XMD holdings as XPR_XMD shows a negative trend and XPR balance is sufficient.
+[2024-10-12T19:47:04.331Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:47:05.155Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:47:06.298Z] [WARNING] No open orders data received.
+[2024-10-12T19:47:06.305Z] [INFO] Attempting to execute trade: [
+  {
+    "account": "eosio.token",
+    "name": "transfer",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "from": "paul123",
+      "to": "dex",
+      "quantity": "10000.0000 XPR",
+      "memo": ""
+    }
+  },
+  {
+    "account": "dex",
+    "name": "placeorder",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "market_id": 1,
+      "account": "paul123",
+      "order_type": 2,
+      "order_side": 2,
+      "fill_type": 0,
+      "bid_symbol": {
+        "sym": "4,XPR",
+        "contract": "eosio.token"
+      },
+      "ask_symbol": {
+        "sym": "6,XMD",
+        "contract": "xmd.token"
+      },
+      "referrer": "",
+      "quantity": "100000000",
+      "price": "782",
+      "trigger_price": "0"
+    }
+  },
+  {
+    "account": "dex",
+    "name": "process",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "q_size": 60,
+      "show_error_msg": 0
+    }
+  },
+  {
+    "account": "dex",
+    "name": "withdrawall",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "account": "paul123"
+    }
+  }
+]
+[2024-10-12T19:47:09.274Z] [ERROR] Trade execution failed: assertion failure with message: Invalid trigger price
+[2024-10-12T19:47:09.288Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T19:52:13.092Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
+[2024-10-12T19:52:14.204Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:52:14.857Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:52:15.901Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:52:15.907Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:52:15.913Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:52:15.919Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:52:15.925Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:52:15.941Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:52:15.960Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:52:15.975Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:52:15.981Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:52:15.982Z] [INFO] Fetching AI decision...
+[2024-10-12T19:52:18.342Z] [INFO] AI Decision:
+Action: sell  
+Market: XPR_XMD  
+Price: 0.000784  
+Amount: 10000  
+Order Type: limit  
+Reason: Continue selling XPR to increase XMD holdings as XPR_XMD shows a negative trend and XPR balance is sufficient.
+[2024-10-12T19:52:18.344Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:52:19.313Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:52:21.156Z] [WARNING] No open orders data received.
+[2024-10-12T19:52:21.163Z] [ERROR] An error occurred: orderType is not defined
+[2024-10-12T19:52:21.165Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T19:59:26.848Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
+[2024-10-12T19:59:27.631Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:59:28.278Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:59:29.113Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:59:29.119Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:59:29.125Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:59:29.132Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:59:29.138Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:59:29.144Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:59:29.150Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:59:29.157Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:59:29.163Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:59:29.164Z] [INFO] Fetching AI decision...
+[2024-10-12T19:59:32.351Z] [INFO] AI Decision:
+Action: sell  
+Market: XPR_XMD  
+Price: 0.000783  
+Amount: 10000  
+Order Type: limit  
+Reason: Continue selling XPR to increase XMD holdings as XPR_XMD shows a negative trend and XPR balance is sufficient.
+[2024-10-12T19:59:32.353Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:59:33.186Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:59:34.354Z] [WARNING] No open orders data received.
+[2024-10-12T19:59:34.362Z] [INFO] Attempting to execute trade: [
+  {
+    "account": "eosio.token",
+    "name": "transfer",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "from": "paul123",
+      "to": "dex",
+      "quantity": "10000.0000 XPR",
+      "memo": ""
+    }
+  },
+  {
+    "account": "dex",
+    "name": "placeorder",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "market_id": 1,
+      "account": "paul123",
+      "order_type": 1,
+      "order_side": 2,
+      "fill_type": 0,
+      "bid_symbol": {
+        "sym": "4,XPR",
+        "contract": "eosio.token"
+      },
+      "ask_symbol": {
+        "sym": "6,XMD",
+        "contract": "xmd.token"
+      },
+      "referrer": "",
+      "quantity": "100000000",
+      "price": "783",
+      "trigger_price": "0"
+    }
+  },
+  {
+    "account": "dex",
+    "name": "process",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "q_size": 60,
+      "show_error_msg": 0
+    }
+  },
+  {
+    "account": "dex",
+    "name": "withdrawall",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "account": "paul123"
+    }
+  }
+]
+[2024-10-12T19:59:37.498Z] [INFO] Trade executed successfully: b3af0e6071e98e255ddd639eb79e09fd0d364d6a274ae22aec28db51ea06cc89
+[2024-10-12T19:59:37.516Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T20:02:38.513Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T20:02:39.184Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T20:02:40.231Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T20:02:40.238Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:02:40.244Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:02:40.249Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:02:40.255Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:02:40.261Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:02:40.267Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:02:40.274Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:02:40.280Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:02:40.280Z] [INFO] Fetching AI decision...
+[2024-10-12T20:02:42.260Z] [INFO] AI Decision:
+Action: sell  
+Market: XXRP_XMD  
+Price: 0.529  
+Amount: 1.0  
+Order Type: market  
+Reason: XXRP_XMD shows a slight negative trend, and selling a small amount of XXRP can increase XMD holdings without significantly affecting the balance.
+[2024-10-12T20:02:42.262Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T20:02:42.262Z] [WARNING] Market XXRP_XMD is in the avoid list.
+[2024-10-12T20:02:42.263Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T20:05:23.714Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
+[2024-10-12T20:05:24.886Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T20:05:25.545Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T20:05:26.643Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T20:05:26.649Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:05:26.655Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:05:26.661Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:05:26.667Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:05:26.674Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:05:26.686Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:05:26.693Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:05:26.700Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T20:05:26.701Z] [INFO] Fetching AI decision...
+[2024-10-12T20:05:28.630Z] [INFO] AI Decision:
+Action: sell  
+Market: METAL_XMD  
+Price: 0.0411  
+Amount: 243.0  
+Order Type: market  
+Reason: METAL_XMD shows a negative trend, and selling METAL will increase XMD holdings, aligning with the goal to maximize portfolio value.
+[2024-10-12T20:05:28.632Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T20:05:29.611Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T20:05:31.471Z] [WARNING] No open orders data received.
+[2024-10-12T20:05:31.477Z] [INFO] Adjusted trade amount to maximize trade size: 243.30900243 METAL.
+[2024-10-12T20:05:31.479Z] [INFO] Attempting to execute trade: [
+  {
+    "account": "xtokens",
+    "name": "transfer",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "from": "paul123",
+      "to": "dex",
+      "quantity": "243.30900243 METAL",
+      "memo": ""
+    }
+  },
+  {
+    "account": "dex",
+    "name": "placeorder",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "market_id": 10,
+      "account": "paul123",
+      "order_type": 1,
+      "order_side": 2,
+      "fill_type": 0,
+      "bid_symbol": {
+        "sym": "8,METAL",
+        "contract": "xtokens"
+      },
+      "ask_symbol": {
+        "sym": "6,XMD",
+        "contract": "xmd.token"
+      },
+      "referrer": "",
+      "quantity": "24330900243",
+      "price": "41100",
+      "trigger_price": "0"
+    }
+  },
+  {
+    "account": "dex",
+    "name": "process",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "q_size": 60,
+      "show_error_msg": 0
+    }
+  },
+  {
+    "account": "dex",
+    "name": "withdrawall",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "account": "paul123"
+    }
+  }
+]
+[2024-10-12T20:05:34.637Z] [INFO] Trade executed successfully: 4ff6455d82e5f65c48e465f1e380b4926641cf0a876d725a59bf13fc52fa56bf
+[2024-10-12T20:05:34.660Z] [INFO] Waiting for 180 seconds before the next run...
+
