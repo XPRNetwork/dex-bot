@@ -462,6 +462,25 @@ async function getMarketDetails(marketSymbol) {
   }
 }
 
+async function fetchOpenOrders(marketId) {
+    try {
+      const url = `https://dex.api.mainnet.metalx.com/dex/v1/account/orders?account=${USERNAME}&market_id=${marketId}`;
+      const response = await fetch(url);
+      const data = await response.json();
+  
+      if (data && data.data) {
+        return data.data; // Return array of open orders
+      } else {
+        log(LogLevel.WARNING, 'No open orders data received.');
+        return [];
+      }
+    } catch (error) {
+      log(LogLevel.ERROR, `Failed to fetch open orders: ${error.message}`);
+      return [];
+    }
+  }
+  
+
 // Function to execute trade based on AI decision
 async function executeTrade(decision) {
     // Validate the decision
@@ -482,6 +501,13 @@ async function executeTrade(decision) {
     const marketDetails = await getMarketDetails(decision.market);
     if (!marketDetails) {
       log(LogLevel.ERROR, `Market ${decision.market} not found.`);
+      return;
+    }
+  
+    // Check for existing open orders in this market
+    const openOrders = await fetchOpenOrders(marketDetails.market_id);
+    if (openOrders.length > 0) {
+      log(LogLevel.INFO, `Already have an open order in market ${decision.market}. Skipping new order.`);
       return;
     }
   
@@ -677,7 +703,7 @@ async function executeTrade(decision) {
       );
     }
   }
-  
+
 // Function to execute the agent's main logic
 async function executeAgent() {
   try {
