@@ -1,5 +1,6 @@
 // agent-mainnet-trade.js
 
+// Import necessary modules
 import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
@@ -9,10 +10,7 @@ import fs from 'fs';
 import process, { argv } from 'process';
 import { fileURLToPath } from 'url';
 import BigNumber from 'bignumber.js';
-
-// If using Node.js v18+, fetch is available globally
-// For earlier versions, uncomment the following line:
-// import fetch from 'node-fetch';
+import fetch from 'node-fetch';
 
 // Handle __dirname and __filename in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -22,23 +20,6 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 // ***** Configuration *****
-
-// Define constants used in order placement
-const ORDERSIDES = {
-    BUY: 1,
-    SELL: 2,
-  };
-  
-  const ORDERTYPES = {
-    LIMIT: 1,
-    MARKET: 2,
-  };
-  
-  const FILLTYPES = {
-    GTC: 0, // Good Till Cancel
-    FOK: 1, // Fill or Kill
-    IOC: 2, // Immediate or Cancel
-  };
 
 // Your Proton account username
 const USERNAME = process.env.PROTON_USERNAME;
@@ -53,19 +34,40 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// DEX contract account
-const DEX_CONTRACT_ACCOUNT = process.env.DEX_CONTRACT_ACCOUNT || 'metalxdexpro';
-
 // Maximum trade size (default 10.0000 XMD)
 const MAX_TRADE_SIZE = parseFloat(process.env.MAX_TRADE_SIZE || '10.0');
 
-// Maximum number of orders per market (default 10)
-const MAX_ORDERS_PER_MARKET = parseInt(process.env.MAX_ORDERS_PER_MARKET || '10', 10);
+// Maximum number of orders per market (default 1)
+const MAX_ORDERS_PER_MARKET = parseInt(process.env.MAX_ORDERS_PER_MARKET || '1', 10);
 
-// Markets to avoid (default ['XXRP_XMD'])
+// Markets to avoid (default [])
 const MARKETS_TO_AVOID = process.env.MARKETS_TO_AVOID
   ? process.env.MARKETS_TO_AVOID.split(',')
-  : ['XXRP_XMD'];
+  : [];
+
+// Allowed markets to trade
+const ALLOWED_MARKETS = [
+  'XBTC_XMD',
+  'XETH_XMD',
+  'XPR_XMD',
+  'XMT_XMD',
+  'XDOGE_XMD',
+  'XXRP_XMD',
+  'METAL_XMD',
+  'XLTC_XMD',
+];
+
+// Map market symbols to CoinGecko coin IDs
+const marketToCoinGeckoId = {
+  'XBTC_XMD': 'bitcoin',
+  'XETH_XMD': 'ethereum',
+  'XPR_XMD': 'proton',
+  'XMT_XMD': 'metal',
+  'XDOGE_XMD': 'dogecoin',
+  'XXRP_XMD': 'ripple',
+  'METAL_XMD': 'metal-blockchain',
+  'XLTC_XMD': 'litecoin',
+};
 
 // Proton RPC endpoints
 const ENDPOINTS = ['https://proton.eoscafeblock.com'];
@@ -160,7 +162,12 @@ async function initializeDatabase() {
     driver: sqlite3.Database,
   });
 
-  // Create tables if they don't exist
+  // Check and update database schema
+  await db.exec(`
+    PRAGMA foreign_keys = ON;
+  `);
+
+  // Create or update tables as needed
   await db.exec(`
     CREATE TABLE IF NOT EXISTS market_data (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -191,8 +198,12 @@ async function initializeDatabase() {
       market TEXT,
       price REAL,
       amount REAL,
+      total_cost REAL,
       reason TEXT,
-      success BOOLEAN
+      success BOOLEAN,
+      closing_trade_id INTEGER,
+      profit_loss REAL,
+      percentage_change REAL
     );
 
     CREATE TABLE IF NOT EXISTS logs (
@@ -208,7 +219,84 @@ async function initializeDatabase() {
       token_code TEXT,
       balance REAL
     );
+
+    CREATE TABLE IF NOT EXISTS positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      open_trade_id INTEGER,
+      close_trade_id INTEGER,
+      market TEXT,
+      amount REAL,
+      open_price REAL,
+      close_price REAL,
+      profit_loss REAL,
+      percentage_change REAL,
+      FOREIGN KEY (open_trade_id) REFERENCES trades(id),
+      FOREIGN KEY (close_trade_id) REFERENCES trades(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS historical_prices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      market_symbol TEXT,
+      timestamp DATETIME,
+      open REAL,
+      high REAL,
+      low REAL,
+      close REAL,
+      volume REAL
+    );
+
+    CREATE TABLE IF NOT EXISTS historical_data_fetch_times (
+      market_symbol TEXT PRIMARY KEY,
+      last_fetch_time INTEGER
+    );
   `);
+
+  // Perform any necessary schema updates
+  await performSchemaUpdates();
+}
+
+// Function to perform schema updates if needed
+async function performSchemaUpdates() {
+  // Example: Add new columns to existing tables if they don't exist
+  const tableColumns = {
+    trades: ['total_cost', 'closing_trade_id', 'profit_loss', 'percentage_change'],
+    positions: [
+      'id',
+      'open_trade_id',
+      'close_trade_id',
+      'market',
+      'amount',
+      'open_price',
+      'close_price',
+      'profit_loss',
+      'percentage_change',
+    ],
+    balances: ['token_code', 'balance'],
+    historical_data_fetch_times: ['market_symbol', 'last_fetch_time'],
+  };
+
+  for (const [tableName, columns] of Object.entries(tableColumns)) {
+    for (const column of columns) {
+      try {
+        await db.run(`ALTER TABLE ${tableName} ADD COLUMN ${column}`);
+      } catch (error) {
+        if (error.message.includes('duplicate column name')) {
+          // Column already exists, continue
+          continue;
+        } else {
+          log(LogLevel.ERROR, `Failed to update schema for table ${tableName}: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  // Ensure 'market_symbol' column exists in 'historical_prices' table
+  const columns = await db.all(`PRAGMA table_info(historical_prices)`);
+  const hasMarketSymbol = columns.some(column => column.name === 'market_symbol');
+
+  if (!hasMarketSymbol) {
+    await db.run(`ALTER TABLE historical_prices ADD COLUMN market_symbol TEXT`);
+  }
 }
 
 // Function to fetch market data and store in database
@@ -303,6 +391,84 @@ async function fetchAndStoreBalances() {
   }
 }
 
+// Function to delay execution for a given number of milliseconds
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Function to fetch and store historical market data from CoinGecko
+async function fetchAndStoreHistoricalData() {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const oneDayAgo = now - 24 * 60 * 60; // Last 24 hours
+
+    for (const [marketSymbol, coinId] of Object.entries(marketToCoinGeckoId)) {
+      // Only proceed if the market is in our allowed markets
+      if (!ALLOWED_MARKETS.includes(marketSymbol)) {
+        continue;
+      }
+
+      // Check when historical data was last fetched for this market
+      const lastFetchRow = await db.get(
+        `SELECT last_fetch_time FROM historical_data_fetch_times WHERE market_symbol = ?`,
+        [marketSymbol]
+      );
+
+      const currentTime = Date.now();
+      const oneHourInMs = 60 * 60 * 1000;
+
+      if (lastFetchRow && currentTime - lastFetchRow.last_fetch_time < oneHourInMs) {
+        log(LogLevel.INFO, `Historical data for market ${marketSymbol} was fetched less than an hour ago. Skipping.`);
+        continue;
+      }
+
+      const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart/range?vs_currency=usd&from=${oneDayAgo}&to=${now}`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data && data.prices) {
+        const stmt = await db.prepare(`
+          INSERT INTO historical_prices (market_symbol, timestamp, open, high, low, close, volume)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        // Only take every nth data point to reduce data size
+        const interval = Math.ceil(data.prices.length / 24); // Approximate to 24 data points
+        for (let i = 0; i < data.prices.length; i += interval) {
+          const [timestamp, price] = data.prices[i];
+          const date = new Date(timestamp);
+          await stmt.run(
+            marketSymbol,
+            date.toISOString(),
+            price, // open
+            price, // high (placeholder)
+            price, // low (placeholder)
+            price, // close
+            null   // volume (not provided)
+          );
+        }
+
+        await stmt.finalize();
+        log(LogLevel.INFO, `Historical data for market ${marketSymbol} fetched and stored successfully.`);
+
+        // Update the last fetch time
+        await db.run(
+          `INSERT OR REPLACE INTO historical_data_fetch_times (market_symbol, last_fetch_time) VALUES (?, ?)`,
+          [marketSymbol, currentTime]
+        );
+      } else {
+        log(LogLevel.WARNING, `No historical data received for market ${marketSymbol}.`);
+      }
+
+      // Wait for 10 seconds to avoid rate limiting
+      await delay(20000);
+    }
+  } catch (error) {
+    log(LogLevel.ERROR, `Failed to fetch historical data: ${error.message}`);
+  }
+}
+
 // Function to get the latest data from the database
 async function getLatestData() {
   // Get the latest market data (limit to the top 5 entries)
@@ -325,11 +491,35 @@ async function getLatestData() {
     `SELECT * FROM trades ORDER BY timestamp DESC LIMIT 5`
   );
 
+  // Get summarized historical prices
+  const historicalData = {};
+
+  for (const marketSymbol of ALLOWED_MARKETS) {
+    const prices = await db.all(
+      `SELECT * FROM historical_prices WHERE market_symbol = ? ORDER BY timestamp DESC LIMIT 24`,
+      [marketSymbol]
+    );
+
+    if (prices.length > 0) {
+      const closingPrices = prices.map(p => p.close);
+      const averagePrice = closingPrices.reduce((a, b) => a + b, 0) / closingPrices.length;
+      const latestPrice = closingPrices[0];
+      const priceChange = ((latestPrice - closingPrices[closingPrices.length - 1]) / closingPrices[closingPrices.length - 1]) * 100;
+
+      historicalData[marketSymbol] = {
+        averagePrice: averagePrice.toFixed(4),
+        latestPrice: latestPrice.toFixed(4),
+        priceChange: priceChange.toFixed(2),
+      };
+    }
+  }
+
   return {
     marketData,
     fearAndGreed,
     balances,
     trades,
+    historicalData,
   };
 }
 
@@ -342,29 +532,34 @@ async function getAIDecision() {
   // Prepare the data as a JSON string
   const dataString = JSON.stringify(data, null, 2);
 
-  // Prepare the prompt with constraints
-  const prompt = `Based on the following data, decide which orders to place to maximize XMD holdings. This is all the information we have, and we must make a decision.
+  const prompt = `Based on the following data, decide which orders to place to maximize XMD holdings. Analyze the historical price trends to inform your decision.
 
-Data:
-${dataString}
-
-Constraints:
-- The maximum trade size is ${MAX_TRADE_SIZE}.
-- Do not suggest trades exceeding this amount.
-- Ensure the suggested amount does not exceed the available balance.
-- You can trade in any available market listed in the data.
-- All amounts should be in the correct decimal format for the respective tokens.
-- Use the token precision provided in the market data when calculating amounts.
-
-Provide your decision in the following format:
-
-Action: <buy/sell>
-Market: <market_symbol>
-Price: <price>
-Amount: <amount>
-Reason: <brief_reason>
-
-Do not include any additional text.`;
+  Data:
+  ${dataString}
+  
+  Constraints:
+  - The maximum trade size is ${MAX_TRADE_SIZE} XMD (total trade value in XMD).
+  - Do not suggest trades where the total value exceeds this amount.
+  - Ensure the suggested amount does not exceed the available balance.
+  - The minimum order size is 1.0 XMD.
+  - You can trade in any available market listed in the data.
+  - All amounts should be in the correct decimal format for the respective tokens.
+  - Use the token precision provided in the market data when calculating amounts.
+  - Important: Market symbols are in the format BASE_QUOTE (e.g., XPR_XMD).
+    - "Buy" action means buying the BASE asset using the QUOTE asset.
+    - "Sell" action means selling the BASE asset to receive the QUOTE asset.
+  - Since our goal is to maximize XMD holdings, suggest actions that result in increasing XMD balance.
+  
+  Provide your decision in the following format:
+  
+  Action: <buy/sell>
+  Market: <market_symbol>
+  Price: <price>
+  Amount: <amount of BASE asset>
+  Reason: <brief_reason>
+  
+  Do not include any additional text.`;
+  
 
   // Call the OpenAI API
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -374,7 +569,7 @@ Do not include any additional text.`;
       Authorization: `Bearer ${OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4', // Use 'gpt-4' if you have access, otherwise 'gpt-3.5-turbo'
+      model: 'gpt-4o', // Use 'gpt-4o' as requested
       messages: [
         {
           role: 'system',
@@ -462,35 +657,52 @@ async function getMarketDetails(marketSymbol) {
   }
 }
 
+// Function to fetch open orders for a specific market
 async function fetchOpenOrders(marketId) {
-    try {
-      const url = `https://dex.api.mainnet.metalx.com/dex/v1/account/orders?account=${USERNAME}&market_id=${marketId}`;
-      const response = await fetch(url);
-      const data = await response.json();
-  
-      if (data && data.data) {
-        return data.data; // Return array of open orders
-      } else {
-        log(LogLevel.WARNING, 'No open orders data received.');
-        return [];
-      }
-    } catch (error) {
-      log(LogLevel.ERROR, `Failed to fetch open orders: ${error.message}`);
+  try {
+    const url = `https://dex.api.mainnet.metalx.com/dex/v1/account/orders?account=${USERNAME}&market_id=${marketId}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data && data.data) {
+      return data.data; // Return array of open orders
+    } else {
+      log(LogLevel.WARNING, 'No open orders data received.');
       return [];
     }
+  } catch (error) {
+    log(LogLevel.ERROR, `Failed to fetch open orders: ${error.message}`);
+    return [];
   }
-  
+}
+
+// Define constants used in order placement
+const ORDERSIDES = {
+  BUY: 1,
+  SELL: 2,
+};
+
+const ORDERTYPES = {
+  LIMIT: 1,
+  MARKET: 2,
+};
+
+const FILLTYPES = {
+  GTC: 0,
+  FOK: 1,
+  IOC: 2,
+};
 
 // Function to execute trade based on AI decision
 async function executeTrade(decision) {
     // Validate the decision
-    if (MARKETS_TO_AVOID.includes(decision.market)) {
-      log(LogLevel.WARNING, `Market ${decision.market} is in the avoid list.`);
+    if (!ALLOWED_MARKETS.includes(decision.market)) {
+      log(LogLevel.WARNING, `Market ${decision.market} is not in the allowed list.`);
       return;
     }
   
-    if (decision.amount > MAX_TRADE_SIZE) {
-      log(LogLevel.WARNING, `Trade amount ${decision.amount} exceeds maximum trade size.`);
+    if (MARKETS_TO_AVOID.includes(decision.market)) {
+      log(LogLevel.WARNING, `Market ${decision.market} is in the avoid list.`);
       return;
     }
   
@@ -506,203 +718,267 @@ async function executeTrade(decision) {
   
     // Check for existing open orders in this market
     const openOrders = await fetchOpenOrders(marketDetails.market_id);
-    if (openOrders.length > 0) {
+    if (openOrders.length >= MAX_ORDERS_PER_MARKET) {
       log(LogLevel.INFO, `Already have an open order in market ${decision.market}. Skipping new order.`);
       return;
     }
   
-    // Fetch balance for the required tokens
-    const bidTokenCode = marketDetails.bid_token.code;
-    const askTokenCode = marketDetails.ask_token.code;
+    // Fetch balances for base and quote assets
+    const baseToken = marketDetails.bid_token;
+    const quoteToken = marketDetails.ask_token;
   
-    const bidTokenBalanceRow = await db.get(
+    const baseTokenCode = baseToken.code;
+    const quoteTokenCode = quoteToken.code;
+  
+    const baseTokenBalanceRow = await db.get(
       `SELECT balance FROM balances WHERE token_code = ? ORDER BY timestamp DESC LIMIT 1`,
-      [bidTokenCode]
+      [baseTokenCode]
     );
-    const askTokenBalanceRow = await db.get(
+    const quoteTokenBalanceRow = await db.get(
       `SELECT balance FROM balances WHERE token_code = ? ORDER BY timestamp DESC LIMIT 1`,
-      [askTokenCode]
+      [quoteTokenCode]
     );
   
-    const bidTokenBalance = bidTokenBalanceRow ? bidTokenBalanceRow.balance : 0.0;
-    const askTokenBalance = askTokenBalanceRow ? askTokenBalanceRow.balance : 0.0;
+    const baseTokenBalance = baseTokenBalanceRow ? parseFloat(baseTokenBalanceRow.balance) : 0.0;
+    const quoteTokenBalance = quoteTokenBalanceRow ? parseFloat(quoteTokenBalanceRow.balance) : 0.0;
+  
+    // Calculate total cost for buy and sell actions
+    let totalCost = decision.amount * decision.price;
+  
+    // Check if the total trade value exceeds the maximum trade size
+    if (totalCost > MAX_TRADE_SIZE) {
+      // Adjust the amount downwards to meet MAX_TRADE_SIZE
+      decision.amount = Math.floor((MAX_TRADE_SIZE / decision.price) * 10 ** baseToken.precision) / 10 ** baseToken.precision;
+      totalCost = decision.amount * decision.price;
+      log(LogLevel.INFO, `Adjusted trade amount to ${decision.amount.toFixed(baseToken.precision)} to meet MAX_TRADE_SIZE.`);
+    }
   
     // Check if the trade amount exceeds the available balance
-    if (decision.action === 'buy' && decision.amount > askTokenBalance) {
-      log(LogLevel.WARNING, `Insufficient ${askTokenCode} balance for the trade.`);
+    if (decision.action === 'buy' && totalCost > quoteTokenBalance) {
+      log(LogLevel.WARNING, `Insufficient ${quoteTokenCode} balance for the trade.`);
       return;
     }
   
-    if (decision.action === 'sell' && decision.amount > bidTokenBalance) {
-      log(LogLevel.WARNING, `Insufficient ${bidTokenCode} balance for the trade.`);
+    if (decision.action === 'sell' && decision.amount > baseTokenBalance) {
+      log(LogLevel.WARNING, `Insufficient ${baseTokenCode} balance for the trade.`);
       return;
     }
   
-    // Prepare the transaction
-    const dexContract = 'dex'; // DEX contract account
-    const tokenContract =
-      decision.action === 'sell'
-        ? marketDetails.bid_token.contract
-        : marketDetails.ask_token.contract;
-    const tokenCode =
-      decision.action === 'sell' ? bidTokenCode : askTokenCode;
-    const tokenPrecision =
-      decision.action === 'sell'
-        ? marketDetails.bid_token.precision
-        : marketDetails.ask_token.precision;
-    const tokenMultiplier =
-      decision.action === 'sell'
-        ? marketDetails.bid_token.multiplier
-        : marketDetails.ask_token.multiplier;
-  
-    const quantity = parseFloat(decision.amount).toFixed(tokenPrecision);
-    const quantityText = `${quantity} ${tokenCode}`;
-  
-    // Normalize quantity and price
-    const bnQuantity = new BigNumber(decision.amount);
-    const quantityNormalized = bnQuantity.multipliedBy(tokenMultiplier).toFixed(0);
-  
-    const priceMultiplier = marketDetails.ask_token.multiplier;
-    const cPrice = new BigNumber(decision.price);
-    const priceNormalized = cPrice.multipliedBy(priceMultiplier).toFixed(0);
-  
-    const orderSide = decision.action === 'buy' ? ORDERSIDES.BUY : ORDERSIDES.SELL;
-  
-    const bidSymbol = {
-      sym: `${marketDetails.bid_token.precision},${bidTokenCode}`,
-      contract: marketDetails.bid_token.contract,
-    };
-  
-    const askSymbol = {
-      sym: `${marketDetails.ask_token.precision},${askTokenCode}`,
-      contract: marketDetails.ask_token.contract,
-    };
-  
-    const actions = [
-      // Transfer action
-      {
-        account: tokenContract,
-        name: 'transfer',
-        authorization: [
-          {
-            actor: USERNAME,
-            permission: 'active',
-          },
-        ],
-        data: {
-          from: USERNAME,
-          to: dexContract,
-          quantity: quantityText,
-          memo: '',
-        },
-      },
-      // Place order action
-      {
-        account: dexContract,
-        name: 'placeorder',
-        authorization: [
-          {
-            actor: USERNAME,
-            permission: 'active',
-          },
-        ],
-        data: {
-          market_id: marketDetails.market_id,
-          account: USERNAME,
-          order_type: ORDERTYPES.LIMIT, // Corrected order_type value
-          order_side: orderSide,        // Corrected order_side value
-          fill_type: FILLTYPES.GTC,
-          bid_symbol: bidSymbol,
-          ask_symbol: askSymbol,
-          referrer: '',
-          quantity: quantityNormalized,
-          price: priceNormalized,
-          trigger_price: '0',
-        },
-      },
-      // Process action
-      {
-        account: dexContract,
-        name: 'process',
-        authorization: [
-          {
-            actor: USERNAME,
-            permission: 'active',
-          },
-        ],
-        data: {
-          q_size: 60,
-          show_error_msg: 0,
-        },
-      },
-      // Withdraw all action
-      {
-        account: dexContract,
-        name: 'withdrawall',
-        authorization: [
-          {
-            actor: USERNAME,
-            permission: 'active',
-          },
-        ],
-        data: {
-          account: USERNAME,
-        },
-      },
-    ];
-  
-    // Log the action being attempted
-    log(
-      LogLevel.INFO,
-      `Attempting to execute trade: ${JSON.stringify(actions, null, 2)}`
-    );
-  
-    try {
-      const result = await api.transact(
-        { actions },
+    // Ensure minimum order size is met (1.0 XMD)
+    if (totalCost < 1.0) {
+      log(LogLevel.WARNING, `Trade total (${totalCost.toFixed(4)} XMD) is below the minimum order size of 1.0 XMD.`);
+      return;
+    }
+
+  // Prepare the transaction
+  const dexContract = 'dex'; // DEX contract account
+  const tokenContract = decision.action === 'sell' ? baseToken.contract : quoteToken.contract;
+  const tokenCode = decision.action === 'sell' ? baseToken.code : quoteToken.code;
+  const tokenPrecision = decision.action === 'sell' ? baseToken.precision : quoteToken.precision;
+  const tokenMultiplier = decision.action === 'sell' ? baseToken.multiplier : quoteToken.multiplier;
+
+  const quantity = parseFloat(decision.action === 'sell' ? decision.amount : totalCost).toFixed(tokenPrecision);
+  const quantityText = `${quantity} ${tokenCode}`;
+
+  // Normalize quantity and price
+  const bnQuantity = new BigNumber(decision.action === 'sell' ? decision.amount : totalCost);
+  const quantityNormalized = bnQuantity.multipliedBy(tokenMultiplier).toFixed(0);
+
+  const priceMultiplier = quoteToken.multiplier;
+  const cPrice = new BigNumber(decision.price);
+  const priceNormalized = cPrice.multipliedBy(priceMultiplier).toFixed(0);
+
+  const orderSide = decision.action === 'buy' ? ORDERSIDES.BUY : ORDERSIDES.SELL;
+
+  const bidSymbol = {
+    sym: `${baseToken.precision},${baseToken.code}`,
+    contract: baseToken.contract,
+  };
+
+  const askSymbol = {
+    sym: `${quoteToken.precision},${quoteToken.code}`,
+    contract: quoteToken.contract,
+  };
+
+  const actions = [
+    // Transfer action
+    {
+      account: tokenContract,
+      name: 'transfer',
+      authorization: [
         {
-          blocksBehind: 300,
-          expireSeconds: 3000,
-        }
-      );
-      log(LogLevel.INFO, `Trade executed successfully: ${result.transaction_id}`);
-      sendTelegramMessage(
-        `Trade executed: ${decision.action.toUpperCase()} ${decision.amount} ${tokenCode} in ${decision.market} at ${decision.price}.`
-      );
-      await db.run(
-        `INSERT INTO trades (action, market, price, amount, reason, success) VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          decision.action,
-          decision.market,
-          decision.price,
-          decision.amount,
-          decision.reason,
-          1,
-        ]
-      );
-    } catch (error) {
-      let errorMessage = error.message;
-      if (error.json && error.json.error && error.json.error.details) {
-        const details = error.json.error.details.map((d) => d.message).join('\n');
-        errorMessage = details;
+          actor: USERNAME,
+          permission: 'active',
+        },
+      ],
+      data: {
+        from: USERNAME,
+        to: dexContract,
+        quantity: quantityText,
+        memo: '',
+      },
+    },
+    // Place order action
+    {
+      account: dexContract,
+      name: 'placeorder',
+      authorization: [
+        {
+          actor: USERNAME,
+          permission: 'active',
+        },
+      ],
+      data: {
+        market_id: marketDetails.market_id,
+        account: USERNAME,
+        order_type: ORDERTYPES.LIMIT,
+        order_side: orderSide,
+        fill_type: FILLTYPES.GTC,
+        bid_symbol: bidSymbol,
+        ask_symbol: askSymbol,
+        referrer: '',
+        quantity: quantityNormalized,
+        price: priceNormalized,
+        trigger_price: '0',
+      },
+    },
+    // Process action
+    {
+      account: dexContract,
+      name: 'process',
+      authorization: [
+        {
+          actor: USERNAME,
+          permission: 'active',
+        },
+      ],
+      data: {
+        q_size: 60,
+        show_error_msg: 0,
+      },
+    },
+    // Withdraw all action
+    {
+      account: dexContract,
+      name: 'withdrawall',
+      authorization: [
+        {
+          actor: USERNAME,
+          permission: 'active',
+        },
+      ],
+      data: {
+        account: USERNAME,
+      },
+    },
+  ];
+
+  // Log the action being attempted
+  log(
+    LogLevel.INFO,
+    `Attempting to execute trade: ${JSON.stringify(actions, null, 2)}`
+  );
+
+  try {
+    const result = await api.transact(
+      { actions },
+      {
+        blocksBehind: 300,
+        expireSeconds: 3000,
       }
-      log(LogLevel.ERROR, `Trade execution failed: ${errorMessage}`);
-      sendTelegramMessage(
-        `Trade failed: ${decision.action.toUpperCase()} ${decision.amount} ${tokenCode} in ${decision.market} at ${decision.price}. Error: ${errorMessage}`
-      );
+    );
+
+    log(LogLevel.INFO, `Trade executed successfully: ${result.transaction_id}`);
+
+    // Insert the trade into the trades table
+    const dbResult = await db.run(
+      `INSERT INTO trades (action, market, price, amount, total_cost, reason, success) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        decision.action,
+        decision.market,
+        decision.price,
+        decision.amount,
+        totalCost,
+        decision.reason,
+        1,
+      ]
+    );
+
+    const tradeId = dbResult.lastID;
+
+    // Position tracking
+    if (decision.action === 'sell') {
+      // Open a new position (since we're selling base asset to get XMD)
       await db.run(
-        `INSERT INTO trades (action, market, price, amount, reason, success) VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          decision.action,
-          decision.market,
-          decision.price,
-          decision.amount,
-          decision.reason,
-          0,
-        ]
+        `INSERT INTO positions (open_trade_id, market, amount, open_price) VALUES (?, ?, ?, ?)`,
+        [tradeId, decision.market, decision.amount, decision.price]
       );
+    } else if (decision.action === 'buy') {
+      // Close existing position
+      const openPosition = await db.get(
+        `SELECT * FROM positions WHERE market = ? AND close_trade_id IS NULL ORDER BY id ASC LIMIT 1`,
+        [decision.market]
+      );
+
+      if (openPosition) {
+        const profitLoss = (openPosition.open_price - decision.price) * decision.amount;
+        const percentageChange = ((openPosition.open_price - decision.price) / openPosition.open_price) * 100;
+
+        // Update the position
+        await db.run(
+          `UPDATE positions SET close_trade_id = ?, close_price = ?, profit_loss = ?, percentage_change = ? WHERE id = ?`,
+          [tradeId, decision.price, profitLoss, percentageChange, openPosition.id]
+        );
+
+        // Update the trades table with profit/loss info
+        await db.run(
+          `UPDATE trades SET closing_trade_id = ?, profit_loss = ?, percentage_change = ? WHERE id = ?`,
+          [tradeId, profitLoss, percentageChange, tradeId]
+        );
+
+        // Send detailed trade summary to Telegram
+        const message = `
+Trade Closed:
+Market: ${decision.market}
+Amount: ${decision.amount}
+Open Price: ${openPosition.open_price}
+Close Price: ${decision.price}
+Profit/Loss: ${profitLoss.toFixed(4)}
+Percentage Change: ${percentageChange.toFixed(2)}%
+`;
+        sendTelegramMessage(message);
+      } else {
+        log(LogLevel.WARNING, `No open position found to close in market ${decision.market}.`);
+      }
     }
+
+    sendTelegramMessage(
+      `Trade executed: ${decision.action.toUpperCase()} ${decision.amount} ${baseTokenCode} in ${decision.market} at ${decision.price}.`
+    );
+
+  } catch (error) {
+    let errorMessage = error.message;
+    if (error.json && error.json.error && error.json.error.details) {
+      const details = error.json.error.details.map((d) => d.message).join('\n');
+      errorMessage = details;
+    }
+    log(LogLevel.ERROR, `Trade execution failed: ${errorMessage}`);
+    sendTelegramMessage(
+      `Trade failed: ${decision.action.toUpperCase()} ${decision.amount} ${baseTokenCode} in ${decision.market} at ${decision.price}. Error: ${errorMessage}`
+    );
+    await db.run(
+      `INSERT INTO trades (action, market, price, amount, reason, success) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        decision.action,
+        decision.market,
+        decision.price,
+        decision.amount,
+        decision.reason,
+        0,
+      ]
+    );
   }
+}
 
 // Function to execute the agent's main logic
 async function executeAgent() {
@@ -729,6 +1005,9 @@ async function executeAgent() {
 
     // Fetch and store balances
     await fetchAndStoreBalances();
+
+    // Fetch and store historical data
+    await fetchAndStoreHistoricalData();
 
     // Get AI decision
     const aiResponse = await getAIDecision();

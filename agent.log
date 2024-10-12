@@ -1,152 +1,38 @@
-[2024-10-12T17:19:10.522Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:19:11.359Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:19:12.554Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:19:13.618Z] [ERROR] Failed to fetch token balance: Table accounts is not specified in the ABI
-[2024-10-12T17:19:14.198Z] [INFO] Balances fetched: XMD=0, XPR=1011.8775
-[2024-10-12T17:19:14.199Z] [INFO] Fetching AI decision...
-[2024-10-12T17:19:17.224Z] [INFO] AI Decision:
-I'm sorry, but as an AI, I don't have access to real-time market data, historical data, or a database of previous trades. I'm here to assist with information and tasks based on the data and context you provide. Please provide the necessary data for me to assist you better.
-[2024-10-12T17:19:17.226Z] [ERROR] Failed to parse AI decision.
-[2024-10-12T17:19:17.227Z] [INFO] Waiting for 180 seconds before the next run...
+[2024-10-12T19:13:48.217Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
+[2024-10-12T19:13:49.034Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:13:49.668Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:13:50.533Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:13:51.014Z] [INFO] Historical data for market XBTC_XMD fetched and stored successfully.
+[2024-10-12T19:14:01.499Z] [INFO] Historical data for market XETH_XMD fetched and stored successfully.
+[2024-10-12T19:14:11.997Z] [INFO] Historical data for market XPR_XMD fetched and stored successfully.
+[2024-10-12T19:14:22.472Z] [INFO] Historical data for market XMT_XMD fetched and stored successfully.
+[2024-10-12T19:14:32.925Z] [INFO] Historical data for market XDOGE_XMD fetched and stored successfully.
+[2024-10-12T19:14:43.429Z] [INFO] Historical data for market XXRP_XMD fetched and stored successfully.
+[2024-10-12T19:14:53.474Z] [WARNING] No historical data received for market METAL_XMD.
+[2024-10-12T19:15:03.502Z] [WARNING] No historical data received for market XLTC_XMD.
+[2024-10-12T19:15:13.506Z] [INFO] Fetching AI decision...
+[2024-10-12T19:15:15.417Z] [INFO] AI Decision:
+Action: Sell  
+Market: XPR_XMD  
+Price: 0.0008  
+Amount: 10  
+Reason: Selling XPR to increase XMD holdings as XPR_XMD price is stable with a negative trend, and XPR balance is sufficient.
 
-[2024-10-12T17:24:51.714Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:24:52.484Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:24:53.117Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:24:53.704Z] [ERROR] Failed to fetch token balance: Table accounts is not specified in the ABI
-[2024-10-12T17:24:54.280Z] [INFO] Balances fetched: XMD=0, XPR=1011.8775
-[2024-10-12T17:24:54.281Z] [INFO] Fetching AI decision...
-[2024-10-12T17:24:57.433Z] [INFO] AI Decision:
-Action: buy
-Market: XPR_XMD
-Price: 0.000783
-Amount: 1011.8775
-Reason: XPR_XMD market has the highest bid volume and a decrease in price, indicating a good opportunity to acquire more XMD with existing XPR balance.
-[2024-10-12T17:24:57.435Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T17:24:57.436Z] [WARNING] Trade amount 1011.8775 exceeds maximum trade size.
-[2024-10-12T17:24:57.437Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T17:26:18.192Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:26:18.967Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:26:19.613Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:26:20.179Z] [ERROR] Failed to fetch token balance: Table accounts is not specified in the ABI
-[2024-10-12T17:26:20.771Z] [INFO] Balances fetched: XMD=0, XPR=1011.8775
-[2024-10-12T17:26:20.772Z] [INFO] Fetching AI decision...
-[2024-10-12T17:26:23.845Z] [INFO] AI Decision:
-Action: buy
-Market: XPR_XMD
-Price: 0.000781
-Amount: 1011.8775
-Reason: XPR_XMD market has the highest volume and the price is low, offering the potential for more XMD holdings.
-[2024-10-12T17:26:23.847Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T17:26:23.848Z] [WARNING] Trade amount 1011.8775 exceeds maximum trade size.
-[2024-10-12T17:26:23.848Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T17:30:13.818Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:30:14.677Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:30:15.339Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:30:15.930Z] [ERROR] Failed to fetch token balance: Table accounts is not specified in the ABI
-[2024-10-12T17:30:16.511Z] [INFO] Balances fetched: XMD=0, XPR=1011.8775
-[2024-10-12T17:30:16.512Z] [INFO] Fetching AI decision...
-[2024-10-12T17:30:18.874Z] [INFO] AI Decision:
-Action: buy
-Market: XPR_XMD
-Price: 0.000782
-Amount: 1011.8775
-Reason: Current XPR balance can be used to buy XMD at a low price in the XPR_XMD market.
-[2024-10-12T17:30:18.876Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T17:30:18.877Z] [WARNING] Trade amount 1011.8775 exceeds maximum trade size.
-[2024-10-12T17:30:18.878Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T17:36:21.467Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:36:22.232Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:36:22.919Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:36:23.321Z] [INFO] Balances fetched: XMD=76.621566, XPR=1011.8775
-[2024-10-12T17:36:23.322Z] [INFO] Fetching AI decision...
-[2024-10-12T17:36:28.821Z] [INFO] AI Decision:
-Action: sell
-Market: XPR_XMD
-Price: 0.000778
-Amount: 10
-Reason: XMD price has decreased and XPR balance is high
-
-Action: buy
-Market: XBTC_XMD
-Price: 63197.5
-Amount: 10
-Reason: XMD price has increased and BTC balance is low
-
-Action: buy
-Market: XETH_XMD
-Price: 2478.5
-Amount: 10
-Reason: XMD price has increased and ETH balance is low
-[2024-10-12T17:36:28.824Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T17:36:29.618Z] [INFO] Balances fetched: XMD=76.621566, XPR=1011.8775
-[2024-10-12T17:36:33.055Z] [ERROR] Trade execution failed: assertion failure with message: to account does not exist
-[2024-10-12T17:36:33.068Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T17:47:40.617Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:47:41.474Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:47:42.183Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:47:42.651Z] [ERROR] Failed to fetch balances: SQLITE_ERROR: table balances has no column named token_code
-[2024-10-12T17:47:42.652Z] [INFO] Fetching AI decision...
-[2024-10-12T17:47:44.649Z] [INFO] AI Decision:
-Based on the provided data, it's impossible to make a decision as there are no balances provided for any of the assets. We need balance data to know how much of each asset we currently hold before we can make a trading decision.
-[2024-10-12T17:47:44.650Z] [ERROR] Failed to parse AI decision.
-[2024-10-12T17:47:44.651Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T17:48:32.909Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:48:33.744Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:48:34.384Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:48:34.874Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T17:48:34.875Z] [INFO] Fetching AI decision...
-[2024-10-12T17:48:38.205Z] [INFO] AI Decision:
-Action: buy
-Market: XPR_XMD
-Price: 0.000784
-Amount: 10
-Reason: The price of XMD in terms of XPR has decreased, indicating it might be a good time to buy XMD. The fear and greed index is neutral indicating market stability. The balance of XPR is sufficient for this trade.
-[2024-10-12T17:48:38.206Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T17:48:38.678Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T17:48:38.884Z] [INFO] Attempting to execute trade: [
+Action: Sell  
+Market: XMT_XMD  
+Price: 0.9634  
+Amount: 10  
+Reason: Selling XMT to increase XMD holdings as XMT_XMD shows a slight negative trend, and XMT balance is sufficient.
+[2024-10-12T19:15:15.420Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:15:16.278Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:15:17.480Z] [WARNING] No open orders data received.
+[2024-10-12T19:15:17.486Z] [WARNING] Trade total (0.0080 XMD) is below the minimum order size of 1.0 XMD.
+[2024-10-12T19:15:17.487Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:15:18.353Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:15:19.536Z] [WARNING] No open orders data received.
+[2024-10-12T19:15:19.544Z] [INFO] Attempting to execute trade: [
   {
-    "account": "dex",
-    "name": "place",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "user": "paul123",
-      "market_id": 1,
-      "side": 1,
-      "price": "0.000784",
-      "quantity": "10.000000",
-      "type": 0
-    }
-  }
-]
-[2024-10-12T17:48:40.675Z] [ERROR] Trade execution failed: Unknown action place in contract dex
-[2024-10-12T17:48:40.689Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T17:54:30.000Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:54:31.151Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:54:31.817Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:54:32.174Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T17:54:32.175Z] [INFO] Fetching AI decision...
-[2024-10-12T17:54:36.647Z] [INFO] AI Decision:
-Action: buy
-Market: XBTC_XMD
-Price: 63217.5
-Amount: 0.0001
-Reason: The price of XMD in terms of XBTC has increased, indicating it might be a good time to buy XMD. The fear and greed index is neutral indicating market stability. The balance of XBTC is sufficient for this trade.
-[2024-10-12T17:54:36.649Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T17:54:37.169Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T17:54:37.535Z] [INFO] Attempting to execute trade: [
-  {
-    "account": "xmd.token",
+    "account": "xtokens",
     "name": "transfer",
     "authorization": [
       {
@@ -157,366 +43,7 @@ Reason: The price of XMD in terms of XBTC has increased, indicating it might be 
     "data": {
       "from": "paul123",
       "to": "dex",
-      "quantity": "0.000100 XMD",
-      "memo": ""
-    }
-  },
-  {
-    "account": "dex",
-    "name": "placeorder",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "market_id": 2,
-      "account": "paul123",
-      "order_type": 0,
-      "order_side": 1,
-      "quantity": "100",
-      "price": "63217500000",
-      "bid_symbol": {
-        "sym": "8,XBTC",
-        "contract": "xtokens"
-      },
-      "ask_symbol": {
-        "sym": "6,XMD",
-        "contract": "xmd.token"
-      },
-      "trigger_price": "0",
-      "fill_type": 0,
-      "referrer": ""
-    }
-  },
-  {
-    "account": "dex",
-    "name": "process",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "q_size": 60,
-      "show_error_msg": 0
-    }
-  },
-  {
-    "account": "dex",
-    "name": "withdrawall",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "account": "paul123"
-    }
-  }
-]
-[2024-10-12T17:54:40.737Z] [ERROR] Trade execution failed: assertion failure with message: Invalid order type
-[2024-10-12T17:54:40.751Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T17:58:36.717Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T17:58:37.505Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T17:58:38.148Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T17:58:38.618Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T17:58:38.619Z] [INFO] Fetching AI decision...
-[2024-10-12T17:58:41.986Z] [INFO] AI Decision:
-Action: buy
-Market: XPR_XMD
-Price: 0.000782
-Amount: 10
-Reason: The price of XMD in terms of XPR has decreased, indicating it might be a good time to buy XMD. The fear and greed index is neutral indicating market stability. The balance of XPR is sufficient for this trade.
-[2024-10-12T17:58:41.988Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T17:58:42.445Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T17:58:42.649Z] [INFO] Attempting to execute trade: [
-  {
-    "account": "xmd.token",
-    "name": "transfer",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "from": "paul123",
-      "to": "dex",
-      "quantity": "10.000000 XMD",
-      "memo": ""
-    }
-  },
-  {
-    "account": "dex",
-    "name": "placeorder",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "market_id": 1,
-      "account": "paul123",
-      "order_type": 1,
-      "order_side": 1,
-      "fill_type": 0,
-      "bid_symbol": {
-        "sym": "4,XPR",
-        "contract": "eosio.token"
-      },
-      "ask_symbol": {
-        "sym": "6,XMD",
-        "contract": "xmd.token"
-      },
-      "referrer": "",
-      "quantity": "10000000",
-      "price": "782",
-      "trigger_price": "0"
-    }
-  },
-  {
-    "account": "dex",
-    "name": "process",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "q_size": 60,
-      "show_error_msg": 0
-    }
-  },
-  {
-    "account": "dex",
-    "name": "withdrawall",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "account": "paul123"
-    }
-  }
-]
-[2024-10-12T17:58:45.644Z] [INFO] Trade executed successfully: d33874d5cb5a9658797a9c85cc9528ee40b0609d86cc4874f0e1266d6a4943fb
-[2024-10-12T17:58:45.661Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T18:01:46.414Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T18:01:47.040Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T18:01:47.512Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T18:01:47.513Z] [INFO] Fetching AI decision...
-[2024-10-12T18:01:50.419Z] [INFO] AI Decision:
-Action: buy
-Market: XPR_XMD
-Price: 0.00078
-Amount: 10
-Reason: The price of XMD in terms of XPR has decreased, indicating it might be a good time to buy XMD. The fear and greed index is neutral indicating market stability. The balance of XPR is sufficient for this trade.
-[2024-10-12T18:01:50.421Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T18:01:50.905Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T18:01:51.109Z] [INFO] Attempting to execute trade: [
-  {
-    "account": "xmd.token",
-    "name": "transfer",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "from": "paul123",
-      "to": "dex",
-      "quantity": "10.000000 XMD",
-      "memo": ""
-    }
-  },
-  {
-    "account": "dex",
-    "name": "placeorder",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "market_id": 1,
-      "account": "paul123",
-      "order_type": 1,
-      "order_side": 1,
-      "fill_type": 0,
-      "bid_symbol": {
-        "sym": "4,XPR",
-        "contract": "eosio.token"
-      },
-      "ask_symbol": {
-        "sym": "6,XMD",
-        "contract": "xmd.token"
-      },
-      "referrer": "",
-      "quantity": "10000000",
-      "price": "780",
-      "trigger_price": "0"
-    }
-  },
-  {
-    "account": "dex",
-    "name": "process",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "q_size": 60,
-      "show_error_msg": 0
-    }
-  },
-  {
-    "account": "dex",
-    "name": "withdrawall",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "account": "paul123"
-    }
-  }
-]
-[2024-10-12T18:01:53.502Z] [INFO] Trade executed successfully: eb7beda0e650885bf9660b61f33249161e0dd51e1f52f61937edd4ebd201e94e
-[2024-10-12T18:01:53.516Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T18:04:54.251Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T18:04:54.897Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T18:04:55.382Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T18:04:55.383Z] [INFO] Fetching AI decision...
-[2024-10-12T18:04:58.414Z] [INFO] AI Decision:
-Action: buy
-Market: XPR_XMD
-Price: 0.000782
-Amount: 10
-Reason: The price of XMD in terms of XPR has decreased, indicating it might be a good time to buy XMD. The fear and greed index is neutral indicating market stability. The balance of XPR is sufficient for this trade.
-[2024-10-12T18:04:58.416Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T18:04:58.877Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T18:04:59.081Z] [INFO] Attempting to execute trade: [
-  {
-    "account": "xmd.token",
-    "name": "transfer",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "from": "paul123",
-      "to": "dex",
-      "quantity": "10.000000 XMD",
-      "memo": ""
-    }
-  },
-  {
-    "account": "dex",
-    "name": "placeorder",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "market_id": 1,
-      "account": "paul123",
-      "order_type": 1,
-      "order_side": 1,
-      "fill_type": 0,
-      "bid_symbol": {
-        "sym": "4,XPR",
-        "contract": "eosio.token"
-      },
-      "ask_symbol": {
-        "sym": "6,XMD",
-        "contract": "xmd.token"
-      },
-      "referrer": "",
-      "quantity": "10000000",
-      "price": "782",
-      "trigger_price": "0"
-    }
-  },
-  {
-    "account": "dex",
-    "name": "process",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "q_size": 60,
-      "show_error_msg": 0
-    }
-  },
-  {
-    "account": "dex",
-    "name": "withdrawall",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "account": "paul123"
-    }
-  }
-]
-[2024-10-12T18:05:01.536Z] [INFO] Trade executed successfully: b11b239d967fdd00da4b0d227df8153fe10fdb000672be94cce0d07cebdfde56
-[2024-10-12T18:05:01.550Z] [INFO] Waiting for 180 seconds before the next run...
-
-[2024-10-12T18:10:28.228Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
-[2024-10-12T18:10:29.060Z] [INFO] Market data fetched and stored successfully.
-[2024-10-12T18:10:29.724Z] [INFO] Fear and Greed Index data fetched and stored successfully.
-[2024-10-12T18:10:30.225Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T18:10:30.226Z] [INFO] Fetching AI decision...
-[2024-10-12T18:10:34.115Z] [INFO] AI Decision:
-Action: buy
-Market: XMT_XMD
-Price: 0.9755
-Amount: 10
-Reason: The price of XMD in terms of XMT has decreased, indicating it might be a good time to buy XMD. The fear and greed index is neutral indicating market stability. The balance of XMT is sufficient for this trade.
-[2024-10-12T18:10:34.117Z] [INFO] Auto mode enabled. Proceeding to execute trade.
-[2024-10-12T18:10:34.605Z] [INFO] Balances fetched and stored successfully.
-[2024-10-12T18:10:35.044Z] [WARNING] No open orders data received.
-[2024-10-12T18:10:35.052Z] [INFO] Attempting to execute trade: [
-  {
-    "account": "xmd.token",
-    "name": "transfer",
-    "authorization": [
-      {
-        "actor": "paul123",
-        "permission": "active"
-      }
-    ],
-    "data": {
-      "from": "paul123",
-      "to": "dex",
-      "quantity": "10.000000 XMD",
+      "quantity": "10.00000000 XMT",
       "memo": ""
     }
   },
@@ -533,7 +60,7 @@ Reason: The price of XMD in terms of XMT has decreased, indicating it might be a
       "market_id": 7,
       "account": "paul123",
       "order_type": 1,
-      "order_side": 1,
+      "order_side": 2,
       "fill_type": 0,
       "bid_symbol": {
         "sym": "8,XMT",
@@ -544,8 +71,8 @@ Reason: The price of XMD in terms of XMT has decreased, indicating it might be a
         "contract": "xmd.token"
       },
       "referrer": "",
-      "quantity": "10000000",
-      "price": "975500",
+      "quantity": "1000000000",
+      "price": "963400",
       "trigger_price": "0"
     }
   },
@@ -577,6 +104,349 @@ Reason: The price of XMD in terms of XMT has decreased, indicating it might be a
     }
   }
 ]
-[2024-10-12T18:10:38.401Z] [INFO] Trade executed successfully: 4239794c81b62891f213e7a7443a1fe020d842913c7e51348a1a28c0e3abefc9
-[2024-10-12T18:10:38.419Z] [INFO] Waiting for 180 seconds before the next run...
+[2024-10-12T19:15:22.839Z] [INFO] Trade executed successfully: b96e8aab3b08165a24700496f4822db1290cd9975d97bde4238929f8b1f0c9db
+[2024-10-12T19:15:22.858Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T19:18:23.579Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:18:24.196Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:18:25.022Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:18:25.030Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:18:25.037Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:18:25.043Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:18:25.052Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:18:25.058Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:18:25.067Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:18:25.551Z] [INFO] Historical data for market METAL_XMD fetched and stored successfully.
+[2024-10-12T19:18:36.025Z] [INFO] Historical data for market XLTC_XMD fetched and stored successfully.
+[2024-10-12T19:18:46.038Z] [INFO] Fetching AI decision...
+[2024-10-12T19:18:47.165Z] [INFO] AI Decision:
+Action: sell  
+Market: XPR_XMD  
+Price: 0.000784  
+Amount: 10000  
+Reason: Selling XPR for XMD as XPR_XMD shows a negative trend and XPR balance is sufficient to increase XMD holdings.
+[2024-10-12T19:18:47.166Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:18:47.167Z] [WARNING] Trade amount 10000 exceeds maximum trade size.
+[2024-10-12T19:18:47.167Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T19:27:26.261Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
+[2024-10-12T19:27:27.064Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:27:27.736Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:27:28.688Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:27:28.695Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:27:28.707Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:27:28.717Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:27:28.725Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:27:28.737Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:27:28.744Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:27:28.753Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:27:28.759Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:27:28.760Z] [INFO] Fetching AI decision...
+[2024-10-12T19:27:30.145Z] [INFO] AI Decision:
+Action: buy  
+Market: METAL_XMD  
+Price: 0.0411  
+Amount: 243.3106  
+Reason: METAL_XMD is at a lower price compared to its average, allowing us to acquire more METAL with XMD and potentially sell at a higher price later to increase XMD holdings.
+[2024-10-12T19:27:30.147Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:27:31.013Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:27:32.237Z] [WARNING] No open orders data received.
+[2024-10-12T19:27:32.244Z] [WARNING] Trade total value 10.0001 XMD exceeds maximum trade size of 10 XMD.
+[2024-10-12T19:27:32.244Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T19:29:52.554Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
+[2024-10-12T19:29:53.374Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:29:54.049Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:29:54.915Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:29:54.922Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:29:54.927Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:29:54.933Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:29:54.940Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:29:54.945Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:29:54.954Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:29:54.964Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:29:54.979Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:29:54.979Z] [INFO] Fetching AI decision...
+[2024-10-12T19:29:56.697Z] [INFO] AI Decision:
+Action: sell  
+Market: XPR_XMD  
+Price: 0.000785  
+Amount: 10000  
+Reason: Selling XPR as XPR_XMD shows a negative trend, converting XPR to XMD to increase XMD holdings.
+[2024-10-12T19:29:56.698Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:29:57.566Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:29:58.749Z] [WARNING] No open orders data received.
+[2024-10-12T19:29:58.756Z] [INFO] Attempting to execute trade: [
+  {
+    "account": "eosio.token",
+    "name": "transfer",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "from": "paul123",
+      "to": "dex",
+      "quantity": "10000.0000 XPR",
+      "memo": ""
+    }
+  },
+  {
+    "account": "dex",
+    "name": "placeorder",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "market_id": 1,
+      "account": "paul123",
+      "order_type": 1,
+      "order_side": 2,
+      "fill_type": 0,
+      "bid_symbol": {
+        "sym": "4,XPR",
+        "contract": "eosio.token"
+      },
+      "ask_symbol": {
+        "sym": "6,XMD",
+        "contract": "xmd.token"
+      },
+      "referrer": "",
+      "quantity": "100000000",
+      "price": "785",
+      "trigger_price": "0"
+    }
+  },
+  {
+    "account": "dex",
+    "name": "process",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "q_size": 60,
+      "show_error_msg": 0
+    }
+  },
+  {
+    "account": "dex",
+    "name": "withdrawall",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "account": "paul123"
+    }
+  }
+]
+[2024-10-12T19:30:01.714Z] [INFO] Trade executed successfully: ef7d9403846a50b3c8f2506774aff72510385aff55886fd77208e446ed826da4
+[2024-10-12T19:30:01.744Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T19:34:11.260Z] [INFO] Agent started in loop mode with a delay of 180 seconds.
+[2024-10-12T19:34:12.180Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:34:12.803Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:34:13.667Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:34:13.674Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:34:13.680Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:34:13.687Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:34:13.693Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:34:13.699Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:34:13.705Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:34:13.712Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:34:13.718Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:34:13.718Z] [INFO] Fetching AI decision...
+[2024-10-12T19:34:15.464Z] [INFO] AI Decision:
+Action: sell  
+Market: XPR_XMD  
+Price: 0.000785  
+Amount: 10000  
+Reason: Selling XPR to increase XMD holdings as XPR_XMD shows a negative trend and XPR balance is sufficient.
+[2024-10-12T19:34:15.466Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:34:16.338Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:34:17.555Z] [WARNING] No open orders data received.
+[2024-10-12T19:34:17.562Z] [INFO] Attempting to execute trade: [
+  {
+    "account": "eosio.token",
+    "name": "transfer",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "from": "paul123",
+      "to": "dex",
+      "quantity": "10000.0000 XPR",
+      "memo": ""
+    }
+  },
+  {
+    "account": "dex",
+    "name": "placeorder",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "market_id": 1,
+      "account": "paul123",
+      "order_type": 1,
+      "order_side": 2,
+      "fill_type": 0,
+      "bid_symbol": {
+        "sym": "4,XPR",
+        "contract": "eosio.token"
+      },
+      "ask_symbol": {
+        "sym": "6,XMD",
+        "contract": "xmd.token"
+      },
+      "referrer": "",
+      "quantity": "100000000",
+      "price": "785",
+      "trigger_price": "0"
+    }
+  },
+  {
+    "account": "dex",
+    "name": "process",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "q_size": 60,
+      "show_error_msg": 0
+    }
+  },
+  {
+    "account": "dex",
+    "name": "withdrawall",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "account": "paul123"
+    }
+  }
+]
+[2024-10-12T19:34:21.121Z] [INFO] Trade executed successfully: d9a3f6b173144a0a5eb6b393fd04d8e5bdf2ee6c1062d482e8141e1217f30a5e
+[2024-10-12T19:34:21.141Z] [INFO] Waiting for 180 seconds before the next run...
+
+[2024-10-12T19:37:22.191Z] [INFO] Market data fetched and stored successfully.
+[2024-10-12T19:37:22.846Z] [INFO] Fear and Greed Index data fetched and stored successfully.
+[2024-10-12T19:37:23.908Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:37:23.918Z] [INFO] Historical data for market XBTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:37:23.931Z] [INFO] Historical data for market XETH_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:37:23.937Z] [INFO] Historical data for market XPR_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:37:23.946Z] [INFO] Historical data for market XMT_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:37:23.954Z] [INFO] Historical data for market XDOGE_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:37:23.962Z] [INFO] Historical data for market XXRP_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:37:23.972Z] [INFO] Historical data for market METAL_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:37:23.983Z] [INFO] Historical data for market XLTC_XMD was fetched less than an hour ago. Skipping.
+[2024-10-12T19:37:23.983Z] [INFO] Fetching AI decision...
+[2024-10-12T19:37:25.413Z] [INFO] AI Decision:
+Action: sell  
+Market: XPR_XMD  
+Price: 0.000784  
+Amount: 10000  
+Reason: Selling XPR to increase XMD holdings as XPR_XMD shows a negative trend and XPR balance is sufficient.
+[2024-10-12T19:37:25.414Z] [INFO] Auto mode enabled. Proceeding to execute trade.
+[2024-10-12T19:37:26.473Z] [INFO] Balances fetched and stored successfully.
+[2024-10-12T19:37:28.288Z] [WARNING] No open orders data received.
+[2024-10-12T19:37:28.296Z] [INFO] Attempting to execute trade: [
+  {
+    "account": "eosio.token",
+    "name": "transfer",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "from": "paul123",
+      "to": "dex",
+      "quantity": "10000.0000 XPR",
+      "memo": ""
+    }
+  },
+  {
+    "account": "dex",
+    "name": "placeorder",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "market_id": 1,
+      "account": "paul123",
+      "order_type": 1,
+      "order_side": 2,
+      "fill_type": 0,
+      "bid_symbol": {
+        "sym": "4,XPR",
+        "contract": "eosio.token"
+      },
+      "ask_symbol": {
+        "sym": "6,XMD",
+        "contract": "xmd.token"
+      },
+      "referrer": "",
+      "quantity": "100000000",
+      "price": "784",
+      "trigger_price": "0"
+    }
+  },
+  {
+    "account": "dex",
+    "name": "process",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "q_size": 60,
+      "show_error_msg": 0
+    }
+  },
+  {
+    "account": "dex",
+    "name": "withdrawall",
+    "authorization": [
+      {
+        "actor": "paul123",
+        "permission": "active"
+      }
+    ],
+    "data": {
+      "account": "paul123"
+    }
+  }
+]
+[2024-10-12T19:37:30.585Z] [INFO] Trade executed successfully: 62d600ca09dcc6fc5b8567849df949625868e9456182352a2ac09d4374aa4c23
+[2024-10-12T19:37:30.618Z] [INFO] Waiting for 180 seconds before the next run...
 
