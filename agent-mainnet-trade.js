@@ -37,6 +37,9 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 // Maximum trade size (default 10.0000 XMD)
 const MAX_TRADE_SIZE = parseFloat(process.env.MAX_TRADE_SIZE || '10.0');
 
+// Minimum trade size (default 10.0000 XMD)
+const MIN_TRADE_SIZE = parseFloat(process.env.MIN_TRADE_SIZE || '10.0');
+
 // Maximum number of orders per market (default 1)
 const MAX_ORDERS_PER_MARKET = parseInt(process.env.MAX_ORDERS_PER_MARKET || '1', 10);
 
@@ -72,8 +75,8 @@ const marketToCoinGeckoId = {
 // Proton RPC endpoints
 const ENDPOINTS = ['https://proton.eoscafeblock.com'];
 
-// Delay between agent wake-ups in seconds (default 180)
-const AGENT_DELAY = parseInt(process.env.AGENT_DELAY || '180', 10);
+// Delay between agent wake-ups in seconds (default 3600 for 1 hour)
+const AGENT_DELAY = parseInt(process.env.AGENT_DELAY || '3600', 10);
 
 // *************************
 
@@ -462,7 +465,7 @@ async function fetchAndStoreHistoricalData() {
       }
 
       // Wait for 10 seconds to avoid rate limiting
-      await delay(10000);
+      await delay(20000);
     }
   } catch (error) {
     log(LogLevel.ERROR, `Failed to fetch historical data: ${error.message}`);
@@ -473,7 +476,7 @@ async function fetchAndStoreHistoricalData() {
 async function getLatestData() {
   // Get the latest market data
   const marketData = await db.all(
-    `SELECT * FROM market_data ORDER BY timestamp DESC`
+    `SELECT * FROM market_data ORDER BY timestamp DESC LIMIT 1`
   );
 
   // Get the latest fear and greed index
@@ -486,41 +489,65 @@ async function getLatestData() {
     `SELECT * FROM balances ORDER BY timestamp DESC`
   );
 
-  // Get recent trades
-  const trades = await db.all(
-    `SELECT * FROM trades ORDER BY timestamp DESC`
-  );
-
   // Get summarized historical prices
   const historicalData = {};
 
   for (const marketSymbol of ALLOWED_MARKETS) {
     const prices = await db.all(
-      `SELECT * FROM historical_prices WHERE market_symbol = ? ORDER BY timestamp DESC LIMIT 24`,
+      `SELECT * FROM historical_prices WHERE market_symbol = ? ORDER BY timestamp DESC LIMIT 1`,
       [marketSymbol]
     );
 
     if (prices.length > 0) {
-      const closingPrices = prices.map(p => p.close);
-      const averagePrice = closingPrices.reduce((a, b) => a + b, 0) / closingPrices.length;
-      const latestPrice = closingPrices[0];
-      const priceChange = ((latestPrice - closingPrices[closingPrices.length - 1]) / closingPrices[closingPrices.length - 1]) * 100;
+      const latestPrice = prices[0].close;
 
       historicalData[marketSymbol] = {
-        averagePrice: averagePrice.toFixed(4),
         latestPrice: latestPrice.toFixed(4),
-        priceChange: priceChange.toFixed(2),
       };
     }
   }
+
+  // Get recent trades summary
+  const tradesSummary = await db.all(
+    `SELECT market, COUNT(*) as tradeCount, SUM(total_cost) as totalTraded FROM trades WHERE timestamp > datetime('now', '-1 day') GROUP BY market`
+  );
+
+  // Fetch recent trades from the DEX API
+  const recentTrades = await fetchRecentTrades();
 
   return {
     marketData,
     fearAndGreed,
     balances,
-    trades,
+    tradesSummary,
+    recentTrades,
     historicalData,
   };
+}
+
+// Function to fetch recent trades
+async function fetchRecentTrades() {
+  const recentTrades = [];
+
+  for (const marketSymbol of ALLOWED_MARKETS) {
+    const url = `https://dex.api.mainnet.metalx.com/dex/v1/trades/history?account=${USERNAME}&symbol=${marketSymbol}&offset=0&limit=10`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data && data.data) {
+      recentTrades.push({
+        market: marketSymbol,
+        trades: data.data.map(trade => ({
+          timestamp: trade.timestamp,
+          side: trade.side,
+          price: trade.price,
+          amount: trade.amount,
+        })),
+      });
+    }
+  }
+
+  return recentTrades;
 }
 
 // Function to calculate the total portfolio value in XMD
@@ -571,29 +598,19 @@ async function getAIDecision() {
   const dataString = JSON.stringify({ ...data, portfolioValue }, null, 2);
 
   // Prepare the prompt with constraints
-  const prompt = `Based on the following data, decide which orders to place to maximize the overall portfolio value. Analyze the historical price trends and consider previous trades to inform your decision.
+  const prompt = `Based on the following summarized data, decide whether to place any orders to maximize the overall portfolio value.
 
   Data:
   ${dataString}
   
   Constraints:
-  - The maximum trade size is ${MAX_TRADE_SIZE} XMD (total trade value in XMD).
-  - Aim to suggest trades where the total value is as close as possible to this amount without exceeding it.
-  - Calculate the amount to maximize up to the maximum trade size, considering the current price and available balance.
-  - Ensure that the total trade value is less than or equal to ${MAX_TRADE_SIZE} XMD after rounding, considering token precision.
-  - Round down the amount if necessary to meet the maximum trade size constraint.
-  - Ensure the suggested amount does not exceed the available balance, which is provided in the data.
-  - The minimum order size is 1.0 XMD.
-  - You can trade in any available market listed in the data.
-  - All amounts should be in the correct decimal format for the respective tokens.
-  - Use the token precision provided in the market data when calculating amounts.
-  - Important: Market symbols are in the format BASE_QUOTE (e.g., XPR_XMD).
-    - "Buy" action means buying the BASE asset using the QUOTE asset.
-    - "Sell" action means selling the BASE asset to receive the QUOTE asset.
-  - Since our goal is to maximize the overall portfolio value, suggest actions that you expect will increase the total value of the portfolio.
-  - Consider your previous trades and their outcomes when making decisions.
-  - If satisfied with current positions, you can choose to skip placing new orders.
-  - You can set limit orders (buy or sell) at prices you predict based on historical trends.
+  - The maximum trade size is ${MAX_TRADE_SIZE} XMD.
+  - The minimum trade size is ${MIN_TRADE_SIZE} XMD.
+  - Aim to suggest trades where the total value is as close as possible to the maximum trade size without exceeding it.
+  - Only suggest trades that are likely to significantly impact the portfolio value.
+  - **Ensure that the suggested amount does not exceed the available balance for that asset (balances are provided in the data).**
+  - Consider your recent trades (provided in the data) and avoid making similar trades repeatedly.
+  - If no significant opportunities are identified, you may choose to skip this trading round.
   
   Provide your decision in the following format:
   
@@ -601,10 +618,10 @@ async function getAIDecision() {
   Market: <market_symbol> (if applicable)
   Price: <price> (if applicable)
   Amount: <amount of BASE asset> (if applicable)
-  Order Type: <market/limit> (specify if it's a limit order)
   Reason: <brief_reason>
   
-  Do not include any additional text.`;  
+  Do not include any additional text.`;
+  
 
   // Call the OpenAI API
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -626,7 +643,7 @@ async function getAIDecision() {
           content: prompt,
         },
       ],
-      max_tokens: 700,
+      max_tokens: 500,
       n: 1,
       stop: null,
       temperature: 0.5,
@@ -655,7 +672,6 @@ function parseAIDecision(aiResponse) {
     const marketMatch = block.match(/Market:\s*([\w_]+)/);
     const priceMatch = block.match(/Price:\s*(\d+(\.\d+)?)/);
     const amountMatch = block.match(/Amount:\s*(\d+(\.\d+)?)/);
-    const orderTypeMatch = block.match(/Order Type:\s*(\w+)/i);
     const reasonMatch = block.match(/Reason:\s*(.+)/);
 
     const action = actionMatch ? actionMatch[1].toLowerCase() : null;
@@ -671,7 +687,6 @@ function parseAIDecision(aiResponse) {
         market: marketMatch[1],
         price: parseFloat(priceMatch[1]),
         amount: parseFloat(amountMatch[1]),
-        orderType: orderTypeMatch ? orderTypeMatch[1].toLowerCase() : 'market',
         reason: reasonMatch[1].trim(),
       });
     } else {
@@ -805,19 +820,6 @@ async function executeTrade(decision) {
   // Calculate total cost for buy and sell actions
   let totalCost = decision.amount * decision.price;
 
-  // Calculate the maximum amount based on MAX_TRADE_SIZE
-  const maxAmount = Math.floor((MAX_TRADE_SIZE / decision.price) * 10 ** baseToken.precision) / 10 ** baseToken.precision;
-
-  // Adjust the amount to maximize up to MAX_TRADE_SIZE
-  if (totalCost < MAX_TRADE_SIZE) {
-    const adjustedAmount = Math.min(maxAmount, baseTokenBalance);
-    if (adjustedAmount > decision.amount) {
-      decision.amount = adjustedAmount;
-      totalCost = decision.amount * decision.price;
-      log(LogLevel.INFO, `Adjusted trade amount to maximize trade size: ${decision.amount.toFixed(baseToken.precision)} ${baseTokenCode}.`);
-    }
-  }
-
   // Check if the total trade value exceeds the maximum trade size
   if (totalCost > MAX_TRADE_SIZE) {
     // Adjust the amount downwards to meet MAX_TRADE_SIZE
@@ -839,9 +841,9 @@ async function executeTrade(decision) {
     log(LogLevel.INFO, `Adjusted trade amount to available balance: ${decision.amount.toFixed(baseToken.precision)} ${baseTokenCode}.`);
   }
 
-  // Ensure minimum order size is met (1.0 XMD)
-  if (totalCost < 1.0) {
-    log(LogLevel.WARNING, `Trade total (${totalCost.toFixed(4)} XMD) is below the minimum order size of 1.0 XMD.`);
+  // Ensure minimum order size is met
+  if (totalCost < MIN_TRADE_SIZE) {
+    log(LogLevel.WARNING, `Trade total (${totalCost.toFixed(4)} XMD) is below the minimum order size of ${MIN_TRADE_SIZE} XMD.`);
     return;
   }
 
@@ -1069,7 +1071,6 @@ Reason: ${decision.reason}
   }
 }
 
-
 // Function to execute the agent's main logic
 async function executeAgent() {
   try {
@@ -1114,7 +1115,7 @@ async function executeAgent() {
       } else {
         // Prompt for confirmation
         const confirmation = await promptInput(
-          `Do you want to execute the following trade?\nAction: ${decision.action.toUpperCase()}\nMarket: ${decision.market}\nPrice: ${decision.price}\nAmount: ${decision.amount}\nOrder Type: ${decision.orderType}\nReason: ${decision.reason}\n(yes/no): `
+          `Do you want to execute the following trade?\nAction: ${decision.action.toUpperCase()}\nMarket: ${decision.market}\nPrice: ${decision.price}\nAmount: ${decision.amount}\nReason: ${decision.reason}\n(yes/no): `
         );
         if (confirmation.toLowerCase() === 'yes') {
           await executeTrade(decision);
