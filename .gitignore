@@ -6,3 +6,5 @@ npm-debug.log
 .DS_Store
 agent.db
 agent.log
+
+notes.txt
