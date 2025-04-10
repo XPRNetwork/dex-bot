@@ -142,11 +142,11 @@ config/default.json has other config values you can change
 
       // endpoints for RPC API
       "endpoints" : [
-        "https://mainnet-rpc.api.protondex.com"
+        "https://rpc.api.mainnet.metalx.com"
       ],
 
       // api for readonly dex api
-      "apiRoot": "https://mainnet.api.protondex.com/dex",
+      "apiRoot": "https://dex.api.mainnet.metalx.com/dex",
 
       // api for readonly proton api
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"

@@ -2,7 +2,7 @@
   "bot" : {
     "rpc": {
       "endpoints" : [
-        "https://testnet-rpc.api.protondex.com"
+        "https://rpc.api.testnet.metalx.com"
       ],
       "apiRoot": "https://dex.api.testnet.metalx.com/dex",
       "lightApiRoot": "https://testnet-lightapi.eosams.xeos.me/api"

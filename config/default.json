@@ -31,53 +31,18 @@
       "pairs": [
         {
           "symbol": "XPR_XMD",
-          "upperLimit": 0.0012000,
-          "lowerLimit": 0.0006000,
-          "gridLevels": 14,
+          "upperLimit": 0.0050000,
+          "lowerLimit": 0.0038000,
+          "gridLevels": 5,
           "bidAmountPerLevel": 40000
-        },
-        {
-          "symbol": "XETH_XMD",
-          "upperLimit": 2500.00,
-          "lowerLimit": 2000.00,
-          "gridLevels": 14,
-          "bidAmountPerLevel": 0.025
-        },
-        {
-          "symbol": "METAL_XMD",
-          "upperLimit": 0.070,
-          "lowerLimit": 0.050,
-          "gridLevels": 14,
-          "bidAmountPerLevel": 420
-        },        
-        {
-          "symbol": "XDOGE_XMD",
-          "upperLimit": 0.100,
-          "lowerLimit": 0.050,
-          "gridLevels": 14,
-          "bidAmountPerLevel": 200
-        },        
-        {
-          "symbol": "XHBAR_XMD",
-          "upperLimit": 0.100,
-          "lowerLimit": 0.040,
-          "gridLevels": 14,
-          "bidAmountPerLevel": 100
-        },
-        {
-          "symbol": "XLTC_XMD",
-          "upperLimit": 100.000,
-          "lowerLimit": 40.000,
-          "gridLevels": 14,
-          "bidAmountPerLevel": 0.25
-        }                
+        }               
       ]
     },
     "rpc": {
       "privateKeyPermission": "active",
       "endpoints" : [
         "https://rpc.api.mainnet.metalx.com",
-        "https://mainnet-rpc.api.protondex.com"
+        "https://rpc.api.mainnet.metalx.com"
       ],
       "apiRoot": "https://dex.api.mainnet.metalx.com/dex",
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"

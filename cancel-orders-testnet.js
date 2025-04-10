@@ -18,8 +18,8 @@ const authorization = [
   },
 ];
 
-const apiRoot = 'https://testnet.api.protondex.com/dex';
-const ENDPOINTS = ['https://testnet-rpc.api.protondex.com'];
+const apiRoot = 'https://dex.api.testnet.metalx.com/dex';
+const ENDPOINTS = ['https://rpc.api.testnet.metalx.com'];
 // Initialize
 const rpc = new JsonRpc(ENDPOINTS);
 
