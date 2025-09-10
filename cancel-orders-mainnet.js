@@ -3,6 +3,7 @@ import fetch from 'node-fetch';
 
 
 // ***** Need to update PRIVATE_KEY, market id and username  ********
+// ****** Make sure to use env variables for the above list *****
 // To export private key from your wallet, follow:
 // https://help.proton.org/hc/en-us/articles/4410313687703-How-do-I-backup-my-private-key-in-the-WebAuth-Wallet-
 const PRIVATE_KEY = process.env.PROTON_PRIVATE_KEY;
