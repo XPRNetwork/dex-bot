@@ -22,18 +22,24 @@
   "author": "Pravin Battu",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@proton/js": "^27.3.0",
     "@proton/light-api": "^3.3.3",
     "@proton/wrap-constants": "^0.2.68",
     "@slack/bolt": "^3.12.2",
     "@slack/socket-mode": "^1.3.2",
     "@slack/web-api": "^6.8.1",
+    "better-sqlite3": "^12.6.2",
     "bignumber.js": "^9.1.1",
     "config": "^3.3.8",
+    "decimal.js": "^10.6.0",
     "node-fetch": "^3.3.0",
-    "winston": "^3.8.2"
+    "prom-client": "^15.1.3",
+    "winston": "^3.8.2",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/chai": "^4.3.4",
     "@types/config": "^3.3.0",
     "@types/mocha": "^10.0.1",

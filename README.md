@@ -1,5 +1,65 @@
 # dexbot
 
+An institutional-grade trading bot for the MetalX.com DEX with advanced strategies, AI-powered decision making, AMM-DEX arbitrage, and comprehensive risk management.
+
+## New in v2.0: Institutional-Grade Upgrade
+
+This release transforms the bot into an enterprise-ready trading platform. See **[WHATSNEW.md](./WHATSNEW.md)** for complete documentation.
+
+### New Features
+
+| Feature | Description |
+|---------|-------------|
+| **SQLite Persistence** | Full order/trade history with audit trail |
+| **Risk Management** | Position limits, circuit breakers, exposure monitoring |
+| **AMM-DEX Arbitrage** | Automated arbitrage between proton.swaps and MetalX DEX |
+| **Claude AI Integration** | AI-powered market analysis and adaptive decision making |
+| **Adaptive Market Maker** | Dynamic spread adjustment based on market conditions |
+| **P&L Analytics** | Real-time performance tracking with Sharpe ratio, drawdown |
+| **Multi-Strategy** | Run multiple strategies concurrently |
+
+### Quick Start (New Features)
+
+```bash
+# Install dependencies (includes new packages)
+npm install --legacy-peer-deps
+
+# Set environment variables
+export PROTON_USERNAME=your-account
+export PROTON_PRIVATE_KEY=your-key
+export CLAUDE_API_KEY=sk-ant-...  # Optional, for AI features
+
+# Run with new strategies
+npm run bot
+```
+
+### New Strategies
+
+- **`amm-dex-arbitrage`** - Exploits price differences between AMM pools and DEX orderbook
+- **`claude-adaptive-mm`** - AI-driven market making with dynamic spread optimization
+
+### Configuration (New Sections)
+
+```json
+{
+  "bot": {
+    "strategy": "claude-adaptive-mm",
+    "strategies": [
+      { "name": "amm-dex-arbitrage", "enabled": true },
+      { "name": "claude-adaptive-mm", "enabled": true }
+    ],
+    "persistence": { "type": "sqlite", "path": "./data/dex-bot.db" },
+    "risk": { "maxDrawdownPercent": 5, "dailyLossLimitUSD": 1000 },
+    "claude": { "enabled": true, "analysisIntervalMS": 60000 },
+    "arbitrage": { "minProfitBPS": 10, "enabled": true }
+  }
+}
+```
+
+---
+
+## Original Features
+
 This is the code for both market maker and grid trading bot strategies against the MetalX.com DEX
 ### API and docs information
   Website: https://metalx.com. 

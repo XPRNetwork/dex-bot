@@ -1,5 +1,5 @@
 {
-  "bot" : {
+  "bot": {
     "tradeIntervalMS": "10000",
     "slackIntervalMS": "1000000",
     "slackBotToken": "",
@@ -31,21 +31,95 @@
       "pairs": [
         {
           "symbol": "XPR_XMD",
-          "upperLimit": 0.0050000,
-          "lowerLimit": 0.0038000,
+          "upperLimit": 0.005,
+          "lowerLimit": 0.0038,
           "gridLevels": 5,
           "bidAmountPerLevel": 40000
-        }               
+        }
       ]
     },
     "rpc": {
       "privateKeyPermission": "active",
-      "endpoints" : [
+      "endpoints": [
         "https://rpc.api.mainnet.metalx.com",
         "https://rpc.api.mainnet.metalx.com"
       ],
       "apiRoot": "https://dex.api.mainnet.metalx.com/dex",
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+    },
+    "persistence": {
+      "type": "sqlite",
+      "path": "./data/dex-bot.db"
+    },
+    "risk": {
+      "maxPositionUSD": 10000,
+      "maxTotalExposureUSD": 50000,
+      "maxPositionPercent": 20,
+      "minOrderSizeUSD": 1,
+      "maxOrdersPerMinute": 60,
+      "maxDrawdownPercent": 5,
+      "dailyLossLimitUSD": 1000,
+      "consecutiveLossLimit": 10,
+      "circuitBreakerEnabled": true,
+      "cooldownMinutes": 60,
+      "autoReset": false
+    },
+    "claude": {
+      "model": "claude-sonnet-4-20250514",
+      "analysisIntervalMS": 60000,
+      "maxTokens": 1024,
+      "temperature": 0.3,
+      "enabled": true
+    },
+    "arbitrage": {
+      "minProfitBPS": 10,
+      "maxTradeSizeUSD": 1000,
+      "checkIntervalMS": 5000,
+      "pools": [
+        {
+          "poolSymbol": "XPRUSDC",
+          "dexMarketSymbol": "XPR_XUSDC",
+          "baseToken": "XPR",
+          "quoteToken": "XUSDC",
+          "enabled": true
+        },
+        {
+          "poolSymbol": "XMTUSDC",
+          "dexMarketSymbol": "XMT_XUSDC",
+          "baseToken": "XMT",
+          "quoteToken": "XUSDC",
+          "enabled": true
+        }
+      ],
+      "dryRun": false,
+      "enabled": true
+    },
+    "claudeAdaptiveMM": {
+      "pairs": [
+        {
+          "symbol": "XPR_XUSDC",
+          "bidAmountPerLevel": 10000,
+          "baseSpreadBps": 50,
+          "enabled": true
+        }
+      ],
+      "analysisIntervalMS": 60000,
+      "orderRefreshMS": 30000,
+      "baseSpreadBps": 50,
+      "targetInventoryRatio": 0.5,
+      "maxPositionUSD": 10000,
+      "gridLevels": 3,
+      "enabled": true
+    },
+    "strategies": [
+      {
+        "name": "gridBot",
+        "enabled": true
+      }
+    ],
+    "monitoring": {
+      "healthCheckIntervalMS": 30000,
+      "metricsEnabled": true
     }
   }
 }
