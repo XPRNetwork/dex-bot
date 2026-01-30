@@ -1,0 +1,212 @@
+{
+  "bot": {
+    "tradeIntervalMS": "30000",
+    "slackIntervalMS": "1000000",
+    "slackBotToken": "",
+    "channelId": "",
+    "cancelOpenOrdersOnExit": true,
+    "gridPlacement": false,
+    "strategy": "cross-venue-arbitrage",
+    "rpc": {
+      "privateKeyPermission": "active",
+      "endpoints": [
+        "https://rpc.api.mainnet.metalx.com",
+        "https://proton.eosusa.io",
+        "https://proton.greymass.com"
+      ],
+      "apiRoot": "https://dex.api.mainnet.metalx.com/dex",
+      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+    },
+    "persistence": {
+      "type": "sqlite",
+      "path": "./data/dex-bot-mainnet.db"
+    },
+    "risk": {
+      "maxPositionUSD": 100,
+      "maxTotalExposureUSD": 500,
+      "maxPositionPercent": 20,
+      "minOrderSizeUSD": 1,
+      "maxOrdersPerMinute": 10,
+      "maxDrawdownPercent": 5,
+      "dailyLossLimitUSD": 50,
+      "consecutiveLossLimit": 3,
+      "circuitBreakerEnabled": true,
+      "cooldownMinutes": 60,
+      "autoReset": false
+    },
+    "claude": {
+      "enabled": false
+    },
+    "arbitrage": {
+      "enabled": false
+    },
+    "xmdTreasury": {
+      "enabled": true,
+      "autoConvert": false,
+      "preferredCollateral": "XUSDC",
+      "minConvertAmount": 10,
+      "reservePercent": 20
+    },
+    "crossVenueArbitrage": {
+      "enabled": true,
+      "pairs": [
+        {
+          "baseToken": "XPR",
+          "baseContract": "eosio.token",
+          "basePrecision": 4,
+          "ammPoolSymbol": "XPRUSDC",
+          "dexMarketSymbol": "XPR_XMD",
+          "dexMarketId": 1,
+          "enabled": true,
+          "minTradeSize": 1000,
+          "maxTradeSize": 50000
+        }
+      ],
+      "minProfitBPS": 50,
+      "maxTradeUSD": 50,
+      "checkIntervalMS": 30000,
+      "dryRun": false,
+      "maxSlippageBPS": 100,
+      "cooldownMS": 120000
+    },
+    "atomicArbitrage": {
+      "enabled": true,
+      "contractAccount": "atomarb",
+      "minProfitBps": 50,
+      "maxTradeUsd": 50,
+      "dryRun": false,
+      "preferAtomic": true,
+      "forceAtomic": false
+    },
+    "triangleArbitrage": {
+      "enabled": true,
+      "checkIntervalMs": 1000,
+      "minProfitBPS": 50,
+      "maxTradeUSD": 50,
+      "dryRun": false,
+      "minPoolLiquidityUSD": 500000,
+      "pairs": [
+        {
+          "name": "XPR",
+          "enabled": true,
+          "baseToken": "XPR",
+          "baseContract": "eosio.token",
+          "basePrecision": 4,
+          "ammPoolSymbol": "XPRUSDC",
+          "dexMarketSymbol": "XPR_XMD",
+          "dexMarketId": 1
+        },
+        {
+          "name": "XMT",
+          "enabled": false,
+          "monitorOnly": true,
+          "baseToken": "XMT",
+          "baseContract": "xtokens",
+          "basePrecision": 8,
+          "ammPoolSymbol": "XMTUSDC",
+          "dexMarketSymbol": "XMT_XMD",
+          "dexMarketId": 7
+        },
+        {
+          "name": "XDOGE",
+          "enabled": false,
+          "monitorOnly": true,
+          "baseToken": "XDOGE",
+          "baseContract": "xtokens",
+          "basePrecision": 6,
+          "ammPoolSymbol": "DOGEUSD",
+          "dexMarketSymbol": "XDOGE_XMD",
+          "dexMarketId": 12
+        },
+        {
+          "name": "METAL",
+          "enabled": false,
+          "monitorOnly": true,
+          "baseToken": "METAL",
+          "baseContract": "xtokens",
+          "basePrecision": 8,
+          "ammPoolSymbol": "METAXPR",
+          "dexMarketSymbol": "METAL_XMD",
+          "dexMarketId": 10,
+          "indirect": true,
+          "bridgePoolSymbol": "XPRUSDC",
+          "bridgeToken": "XPR",
+          "bridgePrecision": 4
+        },
+        {
+          "name": "LOAN",
+          "enabled": false,
+          "monitorOnly": true,
+          "baseToken": "LOAN",
+          "baseContract": "loan.token",
+          "basePrecision": 4,
+          "ammPoolSymbol": "XPRLOAN",
+          "dexMarketSymbol": "LOAN_XMD",
+          "dexMarketId": 9,
+          "indirect": true,
+          "bridgePoolSymbol": "XPRUSDC",
+          "bridgeToken": "XPR",
+          "bridgePrecision": 4
+        }
+      ]
+    },
+    "strategies": [
+      {
+        "name": "cross-venue-arbitrage",
+        "enabled": true
+      }
+    ],
+    "monitoring": {
+      "healthCheckIntervalMS": 120000,
+      "metricsEnabled": true
+    },
+    "telegram": {
+      "enabled": true,
+      "alertOn": {
+        "tradeExecuted": true,
+        "orderPlaced": false,
+        "orderCancelled": false,
+        "profitThresholdUSD": 1,
+        "circuitBreakerTriggered": true,
+        "riskWarning": true,
+        "dailySummary": true,
+        "errorAlert": true
+      },
+      "maxMessagesPerMinute": 30
+    },
+    "marketScanner": {
+      "enabled": true,
+      "scanIntervalMs": 15000,
+      "summaryIntervalMs": 600000,
+      "minProfitBPS": 50,
+      "useClaudeAnalysis": true
+    },
+    "multiHopArbitrage": {
+      "enabled": true,
+      "checkIntervalMs": 1000,
+      "minProfitBps": 75,
+      "maxTradeUsd": 25,
+      "dryRun": false,
+      "paths": [
+        {
+          "name": "METAL_BRIDGE",
+          "enabled": false,
+          "description": "XPR → METAL → XMD → XUSDC → XPR (4-hop, complex)"
+        },
+        {
+          "name": "LOAN_BRIDGE",
+          "enabled": true,
+          "description": "XPR → LOAN → XMD → XUSDC → XPR (uses XPRLOAN AMM + LOAN_XMD DEX)"
+        },
+        {
+          "name": "METAL_DIRECT",
+          "enabled": true,
+          "description": "METAXMD AMM vs METAL_XMD DEX (simple 2-venue arb)"
+        }
+      ]
+    },
+    "tracking": {
+      "startingPortfolioUSD": 1000
+    }
+  }
+}
