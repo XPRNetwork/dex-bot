@@ -9,6 +9,7 @@
 import { JsonRpc } from '@proton/js';
 import { getConfig, getLogger } from '../utils.js';
 import { telegramNotifier } from '../notifications/telegram.js';
+import { getDatabase } from '../persistence/database.js';
 
 const logger = getLogger();
 
@@ -439,6 +440,134 @@ TxIDs: ${arb.trxIds.map(t => t.slice(0, 8)).join(', ')}...`;
 
     logger.info(`Competitor arb: ${arb.account} made ${profitStr} on ${arb.type}`);
     await telegramNotifier.notify(message, 'normal');
+
+    // Save to database
+    this.saveToDatabase(arb);
+  }
+
+  private saveToDatabase(arb: DetectedArb): void {
+    try {
+      const db = getDatabase();
+      const stmt = db.prepare(`
+        INSERT INTO competitor_arbs (account, arb_type, token, input_amount, output_amount, profit_usd, profit_percent, trx_ids, detected_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      stmt.run(
+        arb.account,
+        arb.type,
+        arb.token,
+        arb.inputAmount,
+        arb.outputAmount,
+        arb.profitUsd,
+        arb.profitPercent,
+        arb.trxIds.join(','),
+        arb.timestamp
+      );
+
+      logger.info(`Saved competitor arb to database: ${arb.account}`);
+    } catch (error: any) {
+      logger.error(`Failed to save competitor arb to database: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get competitor statistics
+   */
+  getCompetitorStats(): { account: string; totalArbs: number; totalProfit: number; avgProfit: number; lastSeen: string }[] {
+    try {
+      const db = getDatabase();
+      const stats = db.prepare(`
+        SELECT
+          account,
+          COUNT(*) as total_arbs,
+          SUM(profit_usd) as total_profit,
+          AVG(profit_usd) as avg_profit,
+          MAX(detected_at) as last_seen
+        FROM competitor_arbs
+        GROUP BY account
+        ORDER BY total_profit DESC
+        LIMIT 20
+      `).all() as any[];
+
+      return stats.map(s => ({
+        account: s.account,
+        totalArbs: s.total_arbs,
+        totalProfit: s.total_profit || 0,
+        avgProfit: s.avg_profit || 0,
+        lastSeen: s.last_seen
+      }));
+    } catch (error: any) {
+      logger.error(`Failed to get competitor stats: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get recent competitor arbs
+   */
+  getRecentArbs(limit: number = 20): DetectedArb[] {
+    try {
+      const db = getDatabase();
+      const rows = db.prepare(`
+        SELECT * FROM competitor_arbs
+        ORDER BY detected_at DESC
+        LIMIT ?
+      `).all(limit) as any[];
+
+      return rows.map(r => ({
+        account: r.account,
+        type: r.arb_type as 'AMM_TO_DEX' | 'DEX_TO_AMM' | 'TRIANGLE',
+        token: r.token,
+        inputAmount: r.input_amount,
+        outputAmount: r.output_amount,
+        profitUsd: r.profit_usd,
+        profitPercent: r.profit_percent,
+        timestamp: r.detected_at,
+        trxIds: r.trx_ids ? r.trx_ids.split(',') : []
+      }));
+    } catch (error: any) {
+      logger.error(`Failed to get recent arbs: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get profit summary for a time period
+   */
+  getProfitSummary(hours: number = 24): { totalArbs: number; totalProfit: number; uniqueAccounts: number; topAccount: string | null } {
+    try {
+      const db = getDatabase();
+      const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+      const summary = db.prepare(`
+        SELECT
+          COUNT(*) as total_arbs,
+          SUM(profit_usd) as total_profit,
+          COUNT(DISTINCT account) as unique_accounts
+        FROM competitor_arbs
+        WHERE detected_at >= ?
+      `).get(since) as any;
+
+      const topAccount = db.prepare(`
+        SELECT account, SUM(profit_usd) as profit
+        FROM competitor_arbs
+        WHERE detected_at >= ?
+        GROUP BY account
+        ORDER BY profit DESC
+        LIMIT 1
+      `).get(since) as any;
+
+      return {
+        totalArbs: summary?.total_arbs || 0,
+        totalProfit: summary?.total_profit || 0,
+        uniqueAccounts: summary?.unique_accounts || 0,
+        topAccount: topAccount?.account || null
+      };
+    } catch (error: any) {
+      logger.error(`Failed to get profit summary: ${error.message}`);
+      return { totalArbs: 0, totalProfit: 0, uniqueAccounts: 0, topAccount: null };
+    }
   }
 
   private cleanupOldPending(): void {

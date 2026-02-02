@@ -84,6 +84,8 @@ function runMigrations(database: Database.Database): void {
     { name: '002_arbitrage_tables', sql: migration002ArbitrageTables },
     { name: '003_analytics_tables', sql: migration003AnalyticsTables },
     { name: '004_risk_tables', sql: migration004RiskTables },
+    { name: '005_multihop_balance_tables', sql: migration005MultiHopBalanceTables },
+    { name: '006_competitor_tables', sql: migration006CompetitorTables },
   ];
 
   const appliedMigrations = database
@@ -290,6 +292,100 @@ const migration004RiskTables = `
 
   CREATE INDEX IF NOT EXISTS idx_exposure_strategy ON exposure_history(strategy);
   CREATE INDEX IF NOT EXISTS idx_exposure_captured ON exposure_history(captured_at);
+`;
+
+// Migration 005: Multi-hop arbitrage and balance tracking
+const migration005MultiHopBalanceTables = `
+  -- Multi-hop arbitrage opportunities (METAL, LOAN bridges)
+  CREATE TABLE IF NOT EXISTS multihop_opportunities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_name TEXT NOT NULL,
+    path_description TEXT NOT NULL,
+    start_token TEXT NOT NULL,
+    end_token TEXT NOT NULL,
+    start_amount REAL NOT NULL,
+    end_amount REAL NOT NULL,
+    profit_bps REAL NOT NULL,
+    profit_usd REAL NOT NULL,
+    executed INTEGER DEFAULT 0,
+    execution_profit REAL,
+    detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    executed_at DATETIME
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_multihop_path ON multihop_opportunities(path_name);
+  CREATE INDEX IF NOT EXISTS idx_multihop_detected ON multihop_opportunities(detected_at);
+  CREATE INDEX IF NOT EXISTS idx_multihop_executed ON multihop_opportunities(executed);
+
+  -- Balance history for portfolio tracking
+  CREATE TABLE IF NOT EXISTS balance_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL,
+    amount REAL NOT NULL,
+    price_usd REAL NOT NULL,
+    value_usd REAL NOT NULL,
+    captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_balance_token ON balance_history(token);
+  CREATE INDEX IF NOT EXISTS idx_balance_captured ON balance_history(captured_at);
+
+  -- Portfolio snapshots (total value over time)
+  CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    total_value_usd REAL NOT NULL,
+    xpr_balance REAL DEFAULT 0,
+    xusdc_balance REAL DEFAULT 0,
+    xmd_balance REAL DEFAULT 0,
+    loan_balance REAL DEFAULT 0,
+    metal_balance REAL DEFAULT 0,
+    xpr_price REAL DEFAULT 0,
+    loan_price REAL DEFAULT 0,
+    metal_price REAL DEFAULT 0,
+    captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_portfolio_captured ON portfolio_snapshots(captured_at);
+`;
+
+// Migration 006: Competitor tracking tables
+const migration006CompetitorTables = `
+  -- Competitor arbitrage trades
+  CREATE TABLE IF NOT EXISTS competitor_arbs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account TEXT NOT NULL,
+    arb_type TEXT NOT NULL CHECK (arb_type IN ('AMM_TO_DEX', 'DEX_TO_AMM', 'TRIANGLE')),
+    token TEXT,
+    input_amount REAL,
+    output_amount REAL,
+    profit_usd REAL NOT NULL,
+    profit_percent REAL,
+    trx_ids TEXT,
+    detected_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_competitor_account ON competitor_arbs(account);
+  CREATE INDEX IF NOT EXISTS idx_competitor_type ON competitor_arbs(arb_type);
+  CREATE INDEX IF NOT EXISTS idx_competitor_detected ON competitor_arbs(detected_at);
+  CREATE INDEX IF NOT EXISTS idx_competitor_profit ON competitor_arbs(profit_usd);
+
+  -- Competitor summary stats (aggregated)
+  CREATE TABLE IF NOT EXISTS competitor_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account TEXT NOT NULL,
+    period TEXT NOT NULL CHECK (period IN ('HOURLY', 'DAILY', 'WEEKLY', 'ALL_TIME')),
+    total_arbs INTEGER DEFAULT 0,
+    total_profit_usd REAL DEFAULT 0,
+    avg_profit_usd REAL DEFAULT 0,
+    max_profit_usd REAL DEFAULT 0,
+    preferred_path TEXT,
+    last_seen DATETIME,
+    calculated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(account, period, calculated_at)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_competitor_stats_account ON competitor_stats(account);
+  CREATE INDEX IF NOT EXISTS idx_competitor_stats_period ON competitor_stats(period);
 `;
 
 // Utility function to get current date in YYYY-MM-DD format
