@@ -27,11 +27,11 @@
       "maxPositionPercent": 20,
       "minOrderSizeUSD": 1,
       "maxOrdersPerMinute": 10,
-      "maxDrawdownPercent": 5,
+      "maxDrawdownPercent": 3,
       "dailyLossLimitUSD": 50,
-      "consecutiveLossLimit": 3,
+      "consecutiveLossLimit": 5,
       "circuitBreakerEnabled": true,
-      "cooldownMinutes": 60,
+      "cooldownMinutes": 120,
       "autoReset": false
     },
     "claude": {
@@ -59,30 +59,30 @@
           "dexMarketId": 1,
           "enabled": true,
           "minTradeSize": 1000,
-          "maxTradeSize": 50000
+          "maxTradeSize": 100000
         }
       ],
-      "minProfitBPS": 50,
-      "maxTradeUSD": 50,
+      "minProfitBPS": 15,
+      "maxTradeUSD": 200,
       "checkIntervalMS": 30000,
       "dryRun": false,
       "maxSlippageBPS": 100,
       "cooldownMS": 120000
     },
     "atomicArbitrage": {
-      "enabled": true,
+      "enabled": false,
       "contractAccount": "atomarb",
-      "minProfitBps": 50,
-      "maxTradeUsd": 50,
+      "minProfitBps": 15,
+      "maxTradeUsd": 200,
       "dryRun": false,
-      "preferAtomic": true,
+      "preferAtomic": false,
       "forceAtomic": false
     },
     "triangleArbitrage": {
       "enabled": true,
       "checkIntervalMs": 1000,
-      "minProfitBPS": 50,
-      "maxTradeUSD": 50,
+      "minProfitBPS": 15,
+      "maxTradeUSD": 200,
       "dryRun": false,
       "minPoolLiquidityUSD": 500000,
       "pairs": [
@@ -175,23 +175,23 @@
       "maxMessagesPerMinute": 30
     },
     "marketScanner": {
-      "enabled": true,
+      "enabled": false,
       "scanIntervalMs": 15000,
       "summaryIntervalMs": 600000,
-      "minProfitBPS": 50,
-      "useClaudeAnalysis": true
+      "minProfitBPS": 15,
+      "useClaudeAnalysis": false
     },
     "multiHopArbitrage": {
       "enabled": true,
-      "checkIntervalMs": 1000,
-      "minProfitBps": 75,
-      "maxTradeUsd": 25,
+      "checkIntervalMs": 2000,
+      "minProfitBps": 15,
+      "maxTradeUsd": 50,
       "dryRun": false,
       "paths": [
         {
           "name": "METAL_BRIDGE",
           "enabled": false,
-          "description": "XPR → METAL → XMD → XUSDC → XPR (4-hop, complex)"
+          "description": "XPR → METAL → XMD → XUSDC → XPR (4-hop, complex - too many hops)"
         },
         {
           "name": "LOAN_BRIDGE",

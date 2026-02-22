@@ -15,8 +15,12 @@ import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import { getConfig, getLogger } from '../utils.js';
 import { telegramNotifier } from '../notifications/telegram.js';
 import { profitabilityTracker } from '../analytics/profitability-tracker.js';
+import { circuitBreaker } from '../risk/circuit-breaker.js';
 
 const logger = getLogger();
+
+// Strategy name for circuit breaker tracking
+const STRATEGY_NAME = 'multi-hop-arbitrage';
 
 interface PoolState {
   symbol: string;
@@ -99,9 +103,20 @@ export class MultiHopArbitrage {
   private poolStates: Map<string, PoolState> = new Map();
   private dexMarkets: Map<string, DexMarket> = new Map();
 
-  // Fee constants
-  private readonly AMM_FEE = 0.002; // 0.2%
-  private readonly DEX_FEE = 0.001; // 0.1%
+  // Fee constants - tradingbot has 0% DEX fee + 66% AMM discount (1M XPR staked)
+  private readonly AMM_FEE = 0.00068; // 0.068% (0.2% * 0.34 after 66% discount)
+  private readonly DEX_FEE = 0.000; // 0% - tradingbot has no DEX fees!
+
+  // Track P&L for circuit breaker
+  private lastTradeStartValue: number = 0;
+
+  // Recovery timers (same pattern as triangle arbitrage)
+  private lastRecoveryTime: number = 0;
+  private recoveryIntervalMs: number = 30000;  // Auto-redeem XMD every 30s
+  private lastCleanupTime: number = 0;
+  private cleanupIntervalMs: number = 120000;  // Check stale orders every 2 min
+  private baselineLoan: number = 0;  // Captured on startup, protect from recovery
+  private baselineMetal: number = 0; // Captured on startup, protect from recovery
 
   // SAFETY LIMITS - Prevent catastrophic trades
   private readonly MAX_SINGLE_TRADE_USD = 100; // Never trade more than $100 in one operation
@@ -134,6 +149,40 @@ export class MultiHopArbitrage {
       rpc: this.rpc,
       signatureProvider: new JsSignatureProvider([privateKey])
     });
+  }
+
+  /**
+   * Calculate maximum allowed slippage based on expected profit.
+   * Slippage tolerance is linked to profit: never let slippage exceed 50% of expected profit.
+   *
+   * @param expectedProfitBps Expected profit in basis points
+   * @returns Slippage tolerance as a decimal (e.g., 0.005 for 50 BPS)
+   */
+  private calculateMaxSlippage(expectedProfitBps: number): number {
+    // Never let slippage exceed 50% of expected profit
+    const maxSlippageBps = expectedProfitBps * 0.5;
+
+    // Floor at 10 BPS (minimum price precision on DEX)
+    // Ceiling at 50 BPS (never accept more than 0.5% slippage)
+    const clampedBps = Math.max(10, Math.min(maxSlippageBps, 50));
+
+    return clampedBps / 10000; // Convert to decimal
+  }
+
+  /**
+   * Calculate DEX limit price for sells (below market) based on profit
+   */
+  private calculateSellLimitPrice(bestBid: number, expectedProfitBps: number): number {
+    const maxSlippage = this.calculateMaxSlippage(expectedProfitBps);
+    return bestBid * (1 - maxSlippage);
+  }
+
+  /**
+   * Calculate DEX limit price for buys (above market) based on profit
+   */
+  private calculateBuyLimitPrice(bestAsk: number, expectedProfitBps: number): number {
+    const maxSlippage = this.calculateMaxSlippage(expectedProfitBps);
+    return bestAsk * (1 + maxSlippage);
   }
 
   /**
@@ -224,6 +273,16 @@ export class MultiHopArbitrage {
     logger.info(`Min profit: ${this.config.minProfitBps} BPS`);
     logger.info(`Max trade: $${this.config.maxTradeUsd}`);
     logger.info(`Dry run: ${this.config.dryRun}`);
+
+    // Initialize circuit breaker for this strategy
+    circuitBreaker.initializeStrategy(STRATEGY_NAME);
+    logger.info('Circuit breaker initialized for multi-hop arbitrage');
+
+    // Capture baseline LOAN and METAL balances
+    // Recovery will only swap amounts ABOVE these baselines to protect existing holdings
+    this.baselineLoan = await this.getTokenBalance('LOAN', 'loan.token');
+    this.baselineMetal = await this.getTokenBalance('METAL', 'xtokens');
+    logger.info(`Baseline balances: LOAN=${this.baselineLoan.toFixed(4)}, METAL=${this.baselineMetal.toFixed(8)}`);
 
     // Log enabled paths
     const enabledPaths = this.config.paths.filter(p => p.enabled);
@@ -344,6 +403,35 @@ export class MultiHopArbitrage {
   private async scanAllPaths(): Promise<void> {
     if (this.isExecuting) return;
 
+    // Step 0a: Auto-redeem stuck XMD BEFORE circuit breaker check
+    // Runs even when circuit breaker is triggered, so delayed DEX fills get recovered
+    const now = Date.now();
+    if (now - this.lastRecoveryTime >= this.recoveryIntervalMs) {
+      this.lastRecoveryTime = now;
+      try {
+        await this.autoRedeemStuckXmd();
+      } catch (e: any) {
+        logger.debug(`Multi-hop auto-redeem check failed: ${e.message}`);
+      }
+    }
+
+    // Step 0b: Cleanup stale orders on LOAN_XMD and METAL_XMD markets
+    if (now - this.lastCleanupTime >= this.cleanupIntervalMs) {
+      this.lastCleanupTime = now;
+      try {
+        await this.cleanupStaleOrders();
+      } catch (e: any) {
+        logger.debug(`Multi-hop cleanup check failed: ${e.message}`);
+      }
+    }
+
+    // Check circuit breaker before scanning
+    if (!circuitBreaker.canTrade(STRATEGY_NAME)) {
+      const state = circuitBreaker.getState(STRATEGY_NAME);
+      logger.warn(`🛑 Circuit breaker triggered for ${STRATEGY_NAME}: ${state?.triggerReason || 'Unknown reason'}`);
+      return;
+    }
+
     try {
       // Refresh market data
       await this.fetchPoolStates();
@@ -373,15 +461,19 @@ export class MultiHopArbitrage {
         if (metalDirectPath) opportunities.push(metalDirectPath);
       }
 
-      // Log opportunities
+      // Log opportunities (only at info level if actionable)
       if (opportunities.length > 0) {
-        logger.info(`🔥 Found ${opportunities.length} multi-hop opportunities:`);
-        for (const opp of opportunities) {
-          logger.info(`  ${opp.name}: ${opp.direction} = ${opp.profitBps.toFixed(1)} BPS ($${opp.profitUsd.toFixed(3)})`);
+        const best = opportunities.sort((a, b) => b.profitBps - a.profitBps)[0];
+        if (best.profitBps >= this.config.minProfitBps) {
+          logger.info(`🔥 Found ${opportunities.length} multi-hop opportunities:`);
+          for (const opp of opportunities) {
+            logger.info(`  ${opp.name}: ${opp.direction} = ${opp.profitBps.toFixed(1)} BPS ($${opp.profitUsd.toFixed(3)})`);
+          }
+        } else {
+          logger.debug(`Multi-hop: ${opportunities.length} opportunities found, best: ${best.name} ${best.profitBps.toFixed(1)} BPS (below ${this.config.minProfitBps} BPS threshold)`);
         }
 
         // Execute best opportunity
-        const best = opportunities.sort((a, b) => b.profitBps - a.profitBps)[0];
         if (best.profitBps >= this.config.minProfitBps && !this.config.dryRun) {
           await this.executeArbPath(best);
         }
@@ -410,7 +502,10 @@ export class MultiHopArbitrage {
     const xprusdc = this.poolStates.get('XPRUSDC');
     const metalXmd = this.dexMarkets.get('METAL_XMD');
 
-    if (!metaxpr || !xprusdc || !metalXmd || metalXmd.bestBid === 0) return null;
+    if (!metaxpr || !xprusdc || !metalXmd || metalXmd.bestBid === 0) {
+      logger.debug(`METAL_BRIDGE skip: metaxpr=${!!metaxpr}, xprusdc=${!!xprusdc}, metalXmd=${!!metalXmd}, bid=${metalXmd?.bestBid || 0}`);
+      return null;
+    }
 
     // Simulate: Start with $50 worth of XPR
     const startUsd = this.config.maxTradeUsd;
@@ -435,17 +530,6 @@ export class MultiHopArbitrage {
     const profitUsd = profitXpr * xprPrice;
     const profitBps = (profitXpr / startXpr) * 10000;
 
-    if (profitBps > 0) {
-      return {
-        name: 'METAL_BRIDGE',
-        direction: 'XPR→METAL→XMD→XUSDC→XPR',
-        steps: ['METAXPR_AMM', 'METAL_XMD_DEX', 'TREASURY', 'XPRUSDC_AMM'],
-        profitBps,
-        profitUsd,
-        tradeSizeUsd: startUsd
-      };
-    }
-
     // Check reverse direction: XUSDC → XPR → METAL → XMD
     const revStartUsd = startUsd;
 
@@ -463,6 +547,20 @@ export class MultiHopArbitrage {
 
     const revProfitUsd = revXusdcOut - revStartUsd;
     const revProfitBps = (revProfitUsd / revStartUsd) * 10000;
+
+    // Log both directions
+    logger.debug(`METAL_BRIDGE calc: fwd=${profitBps.toFixed(1)} BPS, rev=${revProfitBps.toFixed(1)} BPS | metalOut=${metalOut.toFixed(4)}, xmdOut=${xmdOut.toFixed(4)}`);
+
+    if (profitBps > 0) {
+      return {
+        name: 'METAL_BRIDGE',
+        direction: 'XPR→METAL→XMD→XUSDC→XPR',
+        steps: ['METAXPR_AMM', 'METAL_XMD_DEX', 'TREASURY', 'XPRUSDC_AMM'],
+        profitBps,
+        profitUsd,
+        tradeSizeUsd: startUsd
+      };
+    }
 
     if (revProfitBps > 0) {
       return {
@@ -581,8 +679,8 @@ export class MultiHopArbitrage {
 
     // DEBUG: Log calculation details for METAL_DIRECT
     const ammSpotPriceA = metaxmd.token2Amount / metaxmd.token1Amount;
-    logger.info(`METAL_DIRECT calc: DEX bid=${dexBid.toFixed(5)}, AMM spot=${ammSpotPriceA.toFixed(5)}, pool METAL=${metaxmd.token1Amount.toFixed(0)}, pool XMD=${metaxmd.token2Amount.toFixed(0)}`);
-    logger.info(`  metalFromAmm=${metalFromAmm.toFixed(2)}, xmdFromDexSell=${xmdFromDexSell.toFixed(4)}, profit=${((xmdFromDexSell - tradeSizeUsd) / tradeSizeUsd * 10000).toFixed(1)} BPS`);
+    logger.debug(`METAL_DIRECT calc: DEX bid=${dexBid.toFixed(5)}, AMM spot=${ammSpotPriceA.toFixed(5)}, pool METAL=${metaxmd.token1Amount.toFixed(0)}, pool XMD=${metaxmd.token2Amount.toFixed(0)}`);
+    logger.debug(`  metalFromAmm=${metalFromAmm.toFixed(2)}, xmdFromDexSell=${xmdFromDexSell.toFixed(4)}, profit=${((xmdFromDexSell - tradeSizeUsd) / tradeSizeUsd * 10000).toFixed(1)} BPS`);
 
     if (xmdFromDexSell > tradeSizeUsd) {
       const profitUsd = xmdFromDexSell - tradeSizeUsd;
@@ -607,8 +705,8 @@ export class MultiHopArbitrage {
 
     // DEBUG: Log calculation details
     const ammSpotPrice = metaxmd.token2Amount / metaxmd.token1Amount;
-    logger.info(`METAL_DIRECT_REV calc: DEX ask=${dexAsk.toFixed(5)}, AMM spot=${ammSpotPrice.toFixed(5)}, pool METAL=${metaxmd.token1Amount.toFixed(0)}, pool XMD=${metaxmd.token2Amount.toFixed(0)}`);
-    logger.info(`  metalFromDexBuy=${metalFromDexBuy.toFixed(2)}, xmdFromAmmSell=${xmdFromAmmSell.toFixed(4)}, profit=${((xmdFromAmmSell - tradeSizeUsd) / tradeSizeUsd * 10000).toFixed(1)} BPS`);
+    logger.debug(`METAL_DIRECT_REV calc: DEX ask=${dexAsk.toFixed(5)}, AMM spot=${ammSpotPrice.toFixed(5)}, pool METAL=${metaxmd.token1Amount.toFixed(0)}, pool XMD=${metaxmd.token2Amount.toFixed(0)}`);
+    logger.debug(`  metalFromDexBuy=${metalFromDexBuy.toFixed(2)}, xmdFromAmmSell=${xmdFromAmmSell.toFixed(4)}, profit=${((xmdFromAmmSell - tradeSizeUsd) / tradeSizeUsd * 10000).toFixed(1)} BPS`);
 
     if (xmdFromAmmSell > tradeSizeUsd) {
       const profitUsd = xmdFromAmmSell - tradeSizeUsd;
@@ -628,6 +726,110 @@ export class MultiHopArbitrage {
   }
 
   /**
+   * Check DEX fill quality by simulating orderbook slippage
+   * Returns whether to proceed and expected slippage
+   */
+  private async checkDexFillQuality(path: ArbPath): Promise<{
+    proceed: boolean;
+    reason: string;
+    slippageBps: number;
+    adjustedProfitBps: number;
+  }> {
+    try {
+      // Determine which DEX market this path uses
+      let marketSymbol: string | null = null;
+      let isBuy: boolean = false; // Are we buying on DEX (taker at ask) or selling (taker at bid)?
+      let tradeAmountUsd: number = path.tradeSizeUsd;
+
+      if (path.name === 'LOAN_BRIDGE' || path.name === 'LOAN_BRIDGE_REV') {
+        marketSymbol = 'LOAN_XMD';
+        isBuy = path.name === 'LOAN_BRIDGE_REV'; // REV = buy LOAN on DEX
+      } else if (path.name === 'METAL_BRIDGE' || path.name === 'METAL_BRIDGE_REV') {
+        marketSymbol = 'METAL_XMD';
+        isBuy = path.name === 'METAL_BRIDGE_REV';
+      } else if (path.name === 'METAL_DIRECT' || path.name === 'METAL_DIRECT_REV') {
+        marketSymbol = 'METAL_XMD';
+        isBuy = path.name === 'METAL_DIRECT_REV';
+      }
+
+      if (!marketSymbol) {
+        return { proceed: true, reason: 'Unknown path', slippageBps: 0, adjustedProfitBps: path.profitBps };
+      }
+
+      const market = this.dexMarkets.get(marketSymbol);
+      if (!market) {
+        return { proceed: false, reason: `Market ${marketSymbol} not found`, slippageBps: 0, adjustedProfitBps: 0 };
+      }
+
+      // Fetch fresh orderbook with more depth
+      const res = await fetch(`https://dex.api.mainnet.metalx.com/dex/v1/orders/depth?symbol=${marketSymbol}&step=1000000&limit=50`);
+      const data = await res.json() as any;
+
+      const bids = data.data?.bids || [];
+      const asks = data.data?.asks || [];
+
+      if (isBuy && asks.length === 0) {
+        return { proceed: false, reason: 'No asks available', slippageBps: 0, adjustedProfitBps: 0 };
+      }
+      if (!isBuy && bids.length === 0) {
+        return { proceed: false, reason: 'No bids available', slippageBps: 0, adjustedProfitBps: 0 };
+      }
+
+      // Simulate fill: walk through orderbook levels
+      const levels = isBuy ? asks : bids;
+      const bestPrice = levels[0].level;
+      let remainingUsd = tradeAmountUsd;
+      let totalFilled = 0;
+      let totalCost = 0;
+
+      for (const level of levels) {
+        const price = level.level;
+        const availableQty = level.bid; // Token quantity at this level
+        const availableUsd = availableQty * price; // Approximate USD value
+
+        if (remainingUsd <= 0) break;
+
+        const fillUsd = Math.min(remainingUsd, availableUsd);
+        const fillQty = fillUsd / price;
+
+        totalFilled += fillQty;
+        totalCost += fillUsd;
+        remainingUsd -= fillUsd;
+      }
+
+      if (remainingUsd > tradeAmountUsd * 0.1) {
+        return { proceed: false, reason: `Insufficient liquidity: only ${((1 - remainingUsd/tradeAmountUsd) * 100).toFixed(0)}% fillable`, slippageBps: 999, adjustedProfitBps: -999 };
+      }
+
+      // Calculate effective price and slippage
+      const effectivePrice = totalCost / totalFilled;
+      const slippagePercent = Math.abs(effectivePrice - bestPrice) / bestPrice;
+      const slippageBps = slippagePercent * 10000;
+
+      // Adjust profit for slippage
+      const adjustedProfitBps = path.profitBps - slippageBps;
+
+      // Reject if slippage eats into profit
+      const MIN_PROFIT_AFTER_SLIPPAGE = 5; // Must have at least 5 BPS profit after slippage
+      if (adjustedProfitBps < MIN_PROFIT_AFTER_SLIPPAGE) {
+        return {
+          proceed: false,
+          reason: `Slippage too high: ${slippageBps.toFixed(1)} BPS reduces profit from ${path.profitBps.toFixed(1)} to ${adjustedProfitBps.toFixed(1)} BPS`,
+          slippageBps,
+          adjustedProfitBps
+        };
+      }
+
+      return { proceed: true, reason: 'OK', slippageBps, adjustedProfitBps };
+
+    } catch (error: any) {
+      logger.error(`Fill quality check failed: ${error.message}`);
+      // On error, be conservative and block the trade
+      return { proceed: false, reason: `Check failed: ${error.message}`, slippageBps: 0, adjustedProfitBps: 0 };
+    }
+  }
+
+  /**
    * Execute an arbitrage path
    */
   private async executeArbPath(path: ArbPath): Promise<void> {
@@ -640,6 +842,12 @@ export class MultiHopArbitrage {
       const now = Date.now();
       if (now - this.lastTradeTime < this.cooldownMs) {
         logger.info('Multi-hop: In cooldown period');
+        return;
+      }
+
+      // SAFETY CHECK 0: Block _REV paths (DEX buys) - DEX buy settlement is unreliable
+      if (path.name.endsWith('_REV')) {
+        logger.info(`🚫 MULTI-HOP BLOCKED: ${path.name} disabled - DEX buy settlement issues`);
         return;
       }
 
@@ -656,8 +864,16 @@ export class MultiHopArbitrage {
         return;
       }
 
-      // Start tracking this trade
-      tradeId = profitabilityTracker.startTrade(
+      // SAFETY CHECK 3: Validate DEX fill quality (slippage check)
+      const fillCheck = await this.checkDexFillQuality(path);
+      if (!fillCheck.proceed) {
+        logger.info(`🚫 MULTI-HOP BLOCKED: ${fillCheck.reason}`);
+        return;
+      }
+      logger.info(`✅ Fill quality OK: Expected slippage ${fillCheck.slippageBps.toFixed(1)} BPS, adjusted profit ${fillCheck.adjustedProfitBps.toFixed(1)} BPS`);
+
+      // Start tracking this trade (captures pre-trade balances)
+      tradeId = await profitabilityTracker.startTrade(
         'multi-hop-arbitrage',
         path.name,
         path.profitBps,
@@ -698,23 +914,32 @@ export class MultiHopArbitrage {
 
       this.lastTradeTime = now;
 
-      // Get end balances and complete tracking
+      // Get end balances for logging (NOT for circuit breaker - DEX fills are async)
       await new Promise(resolve => setTimeout(resolve, 500));
       const endXusdc = await this.getTokenBalance('XUSDC', 'xtokens');
       const endXmd = await this.getTokenBalance('XMD', 'xmd.token');
       const endValue = endXusdc + endXmd;
 
+      // NOTE: Do NOT record P&L with circuit breaker here!
+      // DEX fills are async (10-60+ seconds), so immediate measurement shows false losses.
+      // Triangle arbitrage's periodic checkPortfolioPnl() handles circuit breaker updates.
+      const immediatePnl = endValue - startValue;
+      logger.info(`📊 Trade P&L (immediate, unreliable): $${immediatePnl.toFixed(4)} - actual verified via portfolio check`);
+
       if (tradeId) {
         profitabilityTracker.completeTrade(
           tradeId,
           path.tradeSizeUsd,
-          path.tradeSizeUsd + (endValue - startValue), // Input + P&L
+          path.tradeSizeUsd + immediatePnl,
           []
         );
       }
 
     } catch (error: any) {
       logger.error('Multi-hop execution failed:', error.message);
+
+      // Don't record with circuit breaker - periodic portfolio check handles it
+
       if (tradeId) {
         profitabilityTracker.failTrade(tradeId, error.message);
       }
@@ -825,9 +1050,13 @@ export class MultiHopArbitrage {
 
     const metalToSell = safetyCheck.amount;
     const metalRaw = Math.floor(metalToSell * 1e8);
-    const priceRaw = Math.floor(metalXmd.bestBid * 0.98 * 1e6); // 2% below market
 
-    logger.info(`Step 2: Sell ${metalToSell.toFixed(8)} METAL (safety validated) on DEX @ ${(metalXmd.bestBid * 0.98).toFixed(6)}`);
+    // Use profit-linked slippage tolerance instead of hardcoded 2%
+    const sellLimitPrice = this.calculateSellLimitPrice(metalXmd.bestBid, path.profitBps);
+    const priceRaw = Math.floor(sellLimitPrice * 1e6);
+    const slippageBps = ((metalXmd.bestBid - sellLimitPrice) / metalXmd.bestBid) * 10000;
+
+    logger.info(`Step 2: Sell ${metalToSell.toFixed(8)} METAL on DEX @ ${sellLimitPrice.toFixed(6)} (${slippageBps.toFixed(0)} BPS below bid)`);
 
     const dexActions = [
       {
@@ -879,125 +1108,21 @@ export class MultiHopArbitrage {
     });
     logger.info('DEX sell executed: ' + (dexResult as any).transaction_id);
 
-    // Wait and check XMD balance
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const xmdBalRes = await this.rpc.get_table_rows({
-      code: 'xmd.token',
-      scope: this.username,
-      table: 'accounts',
-      limit: 10,
-      json: true
-    });
-
-    let xmdBalance = 0;
-    for (const row of xmdBalRes.rows) {
-      if (row.balance?.includes('XMD')) {
-        xmdBalance = parseFloat(row.balance);
-      }
-    }
-
-    if (xmdBalance < 1) {
-      throw new Error('No XMD received from DEX sell');
-    }
-
-    // Get XUSDC balance BEFORE treasury redeem to track what we actually receive
-    const xusdcBalBeforeRes = await this.rpc.get_table_rows({
-      code: 'xtokens',
-      scope: this.username,
-      table: 'accounts',
-      limit: 20,
-      json: true
-    });
-    let xusdcBalanceBefore = 0;
-    for (const row of xusdcBalBeforeRes.rows) {
-      if (row.balance?.includes('XUSDC')) {
-        xusdcBalanceBefore = parseFloat(row.balance);
-      }
-    }
-    logger.info(`XUSDC balance before redeem: ${xusdcBalanceBefore.toFixed(6)}`);
-
-    // Step 3: Redeem XMD → XUSDC at Treasury
-    logger.info(`Step 3: Redeem ${xmdBalance.toFixed(6)} XMD → XUSDC`);
-
-    const treasuryActions = [{
-      account: 'xmd.token',
-      name: 'transfer',
-      authorization: [{ actor: this.username, permission: 'active' }],
-      data: {
-        from: this.username,
-        to: 'xmd.treasury',
-        quantity: `${xmdBalance.toFixed(6)} XMD`,
-        memo: 'redeem,XUSDC'
-      }
-    }];
-
-    const treasuryResult = await this.api.transact({ actions: treasuryActions }, {
-      blocksBehind: 3,
-      expireSeconds: 120
-    });
-    logger.info('Treasury redeem executed: ' + (treasuryResult as any).transaction_id);
-
-    // Step 4: Swap XUSDC → XPR
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const xusdcBalRes = await this.rpc.get_table_rows({
-      code: 'xtokens',
-      scope: this.username,
-      table: 'accounts',
-      limit: 20,
-      json: true
-    });
-
-    let xusdcBalanceAfter = 0;
-    for (const row of xusdcBalRes.rows) {
-      if (row.balance?.includes('XUSDC')) {
-        xusdcBalanceAfter = parseFloat(row.balance);
-      }
-    }
-
-    // Calculate ACTUAL XUSDC received (track before/after the redeem)
-    const actualXusdcReceived = xusdcBalanceAfter - xusdcBalanceBefore;
-    logger.info(`XUSDC received from redeem: ${actualXusdcReceived.toFixed(6)}`);
-
-    // CRITICAL FIX: Only swap what we actually received, NOT a fixed trade size!
-    if (actualXusdcReceived > 1) {
-      const xusdcToSwap = actualXusdcReceived * 0.999; // 99.9% of what we received
-      const minXprOut = (xusdcToSwap / xprusdc.price * 0.97).toFixed(4);
-
-      logger.info(`Step 4: Swap ${xusdcToSwap.toFixed(6)} XUSDC → XPR (actual received, not fixed size)`);
-
-      const finalSwapActions = [{
-        account: 'xtokens',
-        name: 'transfer',
-        authorization: [{ actor: this.username, permission: 'active' }],
-        data: {
-          from: this.username,
-          to: 'proton.swaps',
-          quantity: `${xusdcToSwap.toFixed(6)} XUSDC`,
-          memo: `XPRUSDC,${minXprOut} XPR`
-        }
-      }];
-
-      const finalResult = await this.api.transact({ actions: finalSwapActions }, {
-        blocksBehind: 3,
-        expireSeconds: 120
-      });
-      logger.info('Final swap executed: ' + (finalResult as any).transaction_id);
-    } else {
-      logger.warn(`No XUSDC received from redeem (got ${actualXusdcReceived.toFixed(6)}), skipping final swap`);
-    }
+    // DEX sell placed. DEX fills are async (10-60+ seconds).
+    // Do NOT wait for XMD - autoRedeemStuckXmd() will handle it when it arrives.
+    // If the order doesn't fill, cleanupStaleOrders() will cancel and recover.
+    logger.info(`METAL_BRIDGE: DEX sell placed, stopping here. Auto-redeem will handle XMD when fill arrives.`);
 
     await telegramNotifier.notify(
-      `✅ *METAL Bridge Complete*\n\nPath: ${path.direction}\nExpected profit: +${path.profitBps.toFixed(1)} BPS`,
+      `✅ *METAL Bridge DEX Sell Placed*\n\nPath: ${path.direction}\nExpected profit: +${path.profitBps.toFixed(1)} BPS\n\n⏳ Waiting for async DEX fill → auto-redeem`,
       'high'
     );
   }
 
   /**
    * Execute LOAN bridge path
-   * Forward: XPR → LOAN (AMM) → XMD (DEX) → XUSDC (Treasury) → XPR (AMM)
-   * Reverse: XUSDC → XMD (Treasury) → LOAN (DEX buy) → XPR (AMM) → XUSDC (AMM)
+   * Forward: XPR → LOAN (AMM) → XMD (DEX sell, async fill)
+   * Auto-redeem handles XMD → XUSDC when DEX fill arrives.
    */
   private async executeLoanBridge(path: ArbPath): Promise<void> {
     const xprusdc = this.poolStates.get('XPRUSDC')!;
@@ -1010,8 +1135,35 @@ export class MultiHopArbitrage {
       return;
     }
 
+    // Pre-flight: Re-fetch FRESH prices and re-calculate profitability
+    // (same pattern as executeMetalDirect)
+    await this.fetchDexMarket('LOAN_XMD');
+    await this.fetchPoolStates();
+
+    const freshXprusdc = this.poolStates.get('XPRUSDC')!;
+    const freshXprloan = this.poolStates.get('XPRLOAN')!;
+    const freshLoanXmd = this.dexMarkets.get('LOAN_XMD')!;
+
+    const freshPath = await this.checkLoanPath();
+    if (!freshPath || freshPath.profitBps < this.config.minProfitBps) {
+      const currentProfit = freshPath ? freshPath.profitBps.toFixed(1) : 'N/A';
+      logger.warn(`❌ LOAN_BRIDGE ABORTED: Price moved. Fresh profit: ${currentProfit} BPS < required ${this.config.minProfitBps} BPS`);
+      await telegramNotifier.notify(
+        `❌ LOAN_BRIDGE aborted: Price moved. Fresh profit ${currentProfit} BPS < ${this.config.minProfitBps} BPS required`,
+        'normal'
+      );
+      throw new Error(`Price moved: profit dropped to ${currentProfit} BPS`);
+    }
+
+    if (freshPath.name !== path.name) {
+      logger.warn(`❌ LOAN_BRIDGE ABORTED: Path direction flipped to ${freshPath.name}`);
+      throw new Error(`Path direction flipped to ${freshPath.name}`);
+    }
+
+    logger.info(`✅ Pre-flight check passed: LOAN_BRIDGE still profitable at ${freshPath.profitBps.toFixed(1)} BPS`);
+
     // Forward path: Sell LOAN on DEX
-    const startXpr = path.tradeSizeUsd / xprusdc.price;
+    const startXpr = path.tradeSizeUsd / freshXprusdc.price;
 
     // Get LOAN balance BEFORE swap to track exactly what we receive
     const loanBalBeforeRes = await this.rpc.get_table_rows({
@@ -1031,7 +1183,7 @@ export class MultiHopArbitrage {
 
     // Step 1: XPR → LOAN via XPRLOAN AMM
     // XPRLOAN pool: pool1=XPR, pool2=LOAN
-    const expectedLoan = this.calculateAmmOutput(startXpr, xprloan, true); // true = forward direction (XPR→LOAN)
+    const expectedLoan = this.calculateAmmOutput(startXpr, freshXprloan, true); // true = forward direction (XPR→LOAN)
     const minLoan = expectedLoan * 0.99;
 
     logger.info(`Step 1: Swap ${startXpr.toFixed(4)} XPR → ~${expectedLoan.toFixed(4)} LOAN`);
@@ -1104,9 +1256,13 @@ export class MultiHopArbitrage {
 
     const loanToSell = safetyCheck.amount;
     const loanRaw = Math.floor(loanToSell * 1e4); // LOAN has 4 decimals
-    const priceRaw = Math.floor(loanXmd.bestBid * 0.98 * 1e6); // 2% below market
 
-    logger.info(`Step 2: Sell ${loanToSell.toFixed(4)} LOAN (safety validated) on DEX @ ${(loanXmd.bestBid * 0.98).toFixed(6)}`);
+    // Use profit-linked slippage tolerance instead of hardcoded 2%
+    const sellLimitPrice = this.calculateSellLimitPrice(freshLoanXmd.bestBid, path.profitBps);
+    const priceRaw = Math.floor(sellLimitPrice * 1e6);
+    const slippageBps = ((freshLoanXmd.bestBid - sellLimitPrice) / freshLoanXmd.bestBid) * 10000;
+
+    logger.info(`Step 2: Sell ${loanToSell.toFixed(4)} LOAN on DEX @ ${sellLimitPrice.toFixed(6)} (${slippageBps.toFixed(0)} BPS below bid)`);
 
     const dexActions = [
       {
@@ -1125,7 +1281,7 @@ export class MultiHopArbitrage {
         name: 'placeorder',
         authorization: [{ actor: this.username, permission: 'active' }],
         data: {
-          market_id: loanXmd.marketId,
+          market_id: freshLoanXmd.marketId,
           account: this.username,
           order_type: 1,
           order_side: 2, // Sell
@@ -1158,118 +1314,13 @@ export class MultiHopArbitrage {
     });
     logger.info('DEX sell executed: ' + (dexResult as any).transaction_id);
 
-    // Wait and check XMD balance
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const xmdBalRes = await this.rpc.get_table_rows({
-      code: 'xmd.token',
-      scope: this.username,
-      table: 'accounts',
-      limit: 10,
-      json: true
-    });
-
-    let xmdBalance = 0;
-    for (const row of xmdBalRes.rows) {
-      if (row.balance?.includes('XMD')) {
-        xmdBalance = parseFloat(row.balance);
-      }
-    }
-
-    if (xmdBalance < 1) {
-      throw new Error('No XMD received from DEX sell');
-    }
-
-    // Get XUSDC balance BEFORE treasury redeem to track what we actually receive
-    const xusdcBalBeforeRes = await this.rpc.get_table_rows({
-      code: 'xtokens',
-      scope: this.username,
-      table: 'accounts',
-      limit: 20,
-      json: true
-    });
-    let xusdcBalanceBefore = 0;
-    for (const row of xusdcBalBeforeRes.rows) {
-      if (row.balance?.includes('XUSDC')) {
-        xusdcBalanceBefore = parseFloat(row.balance);
-      }
-    }
-    logger.info(`XUSDC balance before redeem: ${xusdcBalanceBefore.toFixed(6)}`);
-
-    // Step 3: Redeem XMD → XUSDC at Treasury
-    logger.info(`Step 3: Redeem ${xmdBalance.toFixed(6)} XMD → XUSDC`);
-
-    const treasuryActions = [{
-      account: 'xmd.token',
-      name: 'transfer',
-      authorization: [{ actor: this.username, permission: 'active' }],
-      data: {
-        from: this.username,
-        to: 'xmd.treasury',
-        quantity: `${xmdBalance.toFixed(6)} XMD`,
-        memo: 'redeem,XUSDC'
-      }
-    }];
-
-    const treasuryResult = await this.api.transact({ actions: treasuryActions }, {
-      blocksBehind: 3,
-      expireSeconds: 120
-    });
-    logger.info('Treasury redeem executed: ' + (treasuryResult as any).transaction_id);
-
-    // Step 4: Swap XUSDC → XPR
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const xusdcBalRes = await this.rpc.get_table_rows({
-      code: 'xtokens',
-      scope: this.username,
-      table: 'accounts',
-      limit: 20,
-      json: true
-    });
-
-    let xusdcBalanceAfter = 0;
-    for (const row of xusdcBalRes.rows) {
-      if (row.balance?.includes('XUSDC')) {
-        xusdcBalanceAfter = parseFloat(row.balance);
-      }
-    }
-
-    // Calculate ACTUAL XUSDC received (track before/after the redeem)
-    // Note: xusdcBalanceBefore was set before Step 3 redeem
-    const actualXusdcReceived = xusdcBalanceAfter - xusdcBalanceBefore;
-    logger.info(`XUSDC received from redeem: ${actualXusdcReceived.toFixed(6)}`);
-
-    // CRITICAL FIX: Only swap what we actually received, NOT a fixed trade size!
-    if (actualXusdcReceived > 1) {
-      const xusdcToSwap = actualXusdcReceived * 0.999; // 99.9% of what we received
-      const minXprOut = (xusdcToSwap / xprusdc.price * 0.97).toFixed(4);
-
-      logger.info(`Step 4: Swap ${xusdcToSwap.toFixed(6)} XUSDC → XPR (actual received, not fixed size)`);
-
-      const finalSwapActions = [{
-        account: 'xtokens',
-        name: 'transfer',
-        authorization: [{ actor: this.username, permission: 'active' }],
-        data: {
-          from: this.username,
-          to: 'proton.swaps',
-          quantity: `${xusdcToSwap.toFixed(6)} XUSDC`,
-          memo: `XPRUSDC,${minXprOut} XPR`
-        }
-      }];
-
-      const finalResult = await this.api.transact({ actions: finalSwapActions }, {
-        blocksBehind: 3,
-        expireSeconds: 120
-      });
-      logger.info('Final swap executed: ' + (finalResult as any).transaction_id);
-    } else {
-      logger.warn(`No XUSDC received from redeem (got ${actualXusdcReceived.toFixed(6)}), skipping final swap`);
-    }
+    // DEX sell placed. DEX fills are async (10-60+ seconds).
+    // Do NOT wait for XMD - autoRedeemStuckXmd() will handle it when it arrives.
+    // If the order doesn't fill, cleanupStaleOrders() will cancel and recover.
+    logger.info(`LOAN_BRIDGE: DEX sell placed, stopping here. Auto-redeem will handle XMD when fill arrives.`);
 
     await telegramNotifier.notify(
-      `✅ *LOAN Bridge Complete*\n\nPath: ${path.direction}\nExpected profit: +${path.profitBps.toFixed(1)} BPS`,
+      `✅ *LOAN Bridge DEX Sell Placed*\n\nPath: ${path.direction}\nExpected profit: +${path.profitBps.toFixed(1)} BPS\n\n⏳ Waiting for async DEX fill → auto-redeem`,
       'high'
     );
   }
@@ -1349,8 +1400,9 @@ export class MultiHopArbitrage {
     logger.info(`LOAN balance before DEX buy: ${loanBalanceBefore.toFixed(4)}`);
 
     // Step 2: Buy LOAN on DEX with XMD
-    // CRITICAL: Calculate loanToBuy based on effective price to avoid overdrawn balance
-    const effectivePrice = loanXmd.bestAsk * 1.02; // 2% above ask for slippage
+    // Use profit-linked slippage tolerance instead of hardcoded 2%
+    const effectivePrice = this.calculateBuyLimitPrice(loanXmd.bestAsk, path.profitBps);
+    const slippageBps = ((effectivePrice - loanXmd.bestAsk) / loanXmd.bestAsk) * 10000;
     const loanToBuy = xmdToMint / effectivePrice; // Expected LOAN to receive
     const priceRaw = Math.floor(effectivePrice * 1e6);
     const xmdNeeded = xmdToMint; // Use exactly what we minted, don't overspend
@@ -1359,7 +1411,7 @@ export class MultiHopArbitrage {
     // NOT the LOAN amount to buy!
     const xmdToSpendRaw = Math.floor(xmdNeeded * 1e6); // XMD has 6 decimals
 
-    logger.info(`Step 2: Buy ~${loanToBuy.toFixed(4)} LOAN on DEX @ ${effectivePrice.toFixed(6)}`);
+    logger.info(`Step 2: Buy ~${loanToBuy.toFixed(4)} LOAN on DEX @ ${effectivePrice.toFixed(6)} (${slippageBps.toFixed(0)} BPS above ask)`);
     logger.info(`  Spending: ${xmdNeeded.toFixed(6)} XMD (raw: ${xmdToSpendRaw})`);
     logger.info(`  Price raw: ${priceRaw}`);
 
@@ -1600,7 +1652,7 @@ export class MultiHopArbitrage {
         `❌ ${path.name} aborted: Price moved. Fresh profit ${currentProfit} BPS < ${this.config.minProfitBps} BPS required`,
         'normal'
       );
-      return;
+      throw new Error(`Price moved: profit dropped to ${currentProfit} BPS`);
     }
 
     // Also verify the path direction didn't flip
@@ -1610,7 +1662,7 @@ export class MultiHopArbitrage {
         `❌ ${path.name} aborted: Direction flipped to ${freshPath.name}`,
         'normal'
       );
-      return;
+      throw new Error(`Path direction flipped to ${freshPath.name}`);
     }
 
     logger.info(`✅ Pre-flight check passed: ${path.name} still profitable at ${freshPath.profitBps.toFixed(1)} BPS`);
@@ -1775,9 +1827,13 @@ export class MultiHopArbitrage {
 
       const metalToSell = safetyCheck.amount;
       const metalRaw = Math.floor(metalToSell * 1e8);
-      const priceRaw = Math.floor(metalXmd.bestBid * 0.98 * 1e6); // 2% below market for fast fill
 
-      logger.info(`Step 2: Sell ${metalToSell.toFixed(8)} METAL (safety validated) on DEX @ ${(metalXmd.bestBid * 0.98).toFixed(6)}`);
+      // Use profit-linked slippage tolerance instead of hardcoded 2%
+      const sellLimitPrice = this.calculateSellLimitPrice(metalXmd.bestBid, path.profitBps);
+      const priceRaw = Math.floor(sellLimitPrice * 1e6);
+      const slippageBps = ((metalXmd.bestBid - sellLimitPrice) / metalXmd.bestBid) * 10000;
+
+      logger.info(`Step 2: Sell ${metalToSell.toFixed(8)} METAL on DEX @ ${sellLimitPrice.toFixed(6)} (${slippageBps.toFixed(0)} BPS below bid)`);
 
       const dexActions = [
         {
@@ -1923,8 +1979,9 @@ export class MultiHopArbitrage {
       logger.info(`METAL balance before DEX buy: ${metalBalanceBefore.toFixed(8)}`);
 
       // Step 1: Buy METAL on DEX with XMD
-      // Account for 2% price buffer in metal calculation so we don't overspend
-      const effectivePrice = metalXmd.bestAsk * 1.02;
+      // Use profit-linked slippage tolerance instead of hardcoded 2%
+      const effectivePrice = this.calculateBuyLimitPrice(metalXmd.bestAsk, path.profitBps);
+      const slippageBps = ((effectivePrice - metalXmd.bestAsk) / metalXmd.bestAsk) * 10000;
       const metalToBuy = xmdToUse / effectivePrice;  // Expected METAL to receive
       const priceRaw = Math.floor(effectivePrice * 1e6);
       const xmdNeeded = xmdToUse;  // Use exactly what we have, don't overspend
@@ -1933,7 +1990,7 @@ export class MultiHopArbitrage {
       // NOT the METAL amount to buy!
       const xmdToSpendRaw = Math.floor(xmdNeeded * 1e6); // XMD has 6 decimals
 
-      logger.info(`Step 1: Buy ~${metalToBuy.toFixed(8)} METAL on DEX @ ${effectivePrice.toFixed(6)}`);
+      logger.info(`Step 1: Buy ~${metalToBuy.toFixed(8)} METAL on DEX @ ${effectivePrice.toFixed(6)} (${slippageBps.toFixed(0)} BPS above ask)`);
       logger.info(`  Spending: ${xmdNeeded.toFixed(6)} XMD (raw: ${xmdToSpendRaw})`);
       logger.info(`  Price raw: ${priceRaw}`);
 
@@ -1994,7 +2051,7 @@ export class MultiHopArbitrage {
       // Wait longer for RPC to sync and retry balance check
       let metalBalance = 0;
       let actualMetalReceived = 0;
-      const expectedMetalFromDex = xmdNeeded / (metalXmd.bestAsk * 1.02);
+      const expectedMetalFromDex = metalToBuy; // Use the already-calculated expected amount
 
       for (let attempt = 1; attempt <= 5; attempt++) {
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -2071,6 +2128,210 @@ export class MultiHopArbitrage {
         `✅ *METAL Direct ARB Complete*\n\nPath: Buy METAL on DEX, sell to AMM\nExpected profit: +${path.profitBps.toFixed(1)} BPS`,
         'high'
       );
+    }
+  }
+
+  /**
+   * Auto-redeem any stuck XMD to XUSDC via treasury.
+   * Handles async DEX fills that arrive after the trade function returns.
+   * Idempotent - safe if triangle arb also redeems in the same cycle.
+   */
+  private async autoRedeemStuckXmd(): Promise<void> {
+    const xmdBalance = await this.getTokenBalance('XMD', 'xmd.token');
+
+    if (xmdBalance > 1) {
+      logger.info(`🔄 Multi-hop auto-recovery: Found ${xmdBalance.toFixed(6)} stuck XMD, redeeming to XUSDC...`);
+
+      try {
+        const treasuryActions = [{
+          account: 'xmd.token',
+          name: 'transfer',
+          authorization: [{ actor: this.username, permission: 'active' }],
+          data: {
+            from: this.username,
+            to: 'xmd.treasury',
+            quantity: `${xmdBalance.toFixed(6)} XMD`,
+            memo: 'redeem,XUSDC'
+          }
+        }];
+
+        const result = await this.api.transact({ actions: treasuryActions }, {
+          blocksBehind: 3,
+          expireSeconds: 120
+        });
+
+        logger.info('Multi-hop auto-recovery: XMD redeemed - ' + (result as any).transaction_id);
+        await telegramNotifier.notify(
+          `🔄 *Multi-hop Auto-Recovery*\nRedeemed ${xmdBalance.toFixed(2)} XMD to XUSDC`,
+          'normal'
+        );
+      } catch (error: any) {
+        logger.error('Multi-hop auto-recovery failed:', error.message);
+      }
+    }
+  }
+
+  /**
+   * Cleanup stale orders on LOAN_XMD (market 9) and METAL_XMD (market 10).
+   * Queries on-chain DEX orderbook (not API, which returns 404 for open orders).
+   * Cancels any tradingbot orders, withdraws funds, then recovers stuck tokens.
+   */
+  private async cleanupStaleOrders(): Promise<void> {
+    try {
+      // Query on-chain orderbook for our orders on markets 9 and 10
+      const orderbookRes = await this.rpc.get_table_rows({
+        code: 'dex',
+        scope: 'dex',
+        table: 'orderbook',
+        reverse: true,
+        limit: 200,
+        json: true
+      });
+
+      const ourOrders = orderbookRes.rows.filter((order: any) =>
+        order.account_name === this.username &&
+        (order.market_id === 9 || order.market_id === 10)
+      );
+
+      if (ourOrders.length === 0) {
+        return;
+      }
+
+      logger.info(`🧹 Multi-hop cleanup: Found ${ourOrders.length} stale orders on markets 9/10`);
+
+      for (const order of ourOrders) {
+        try {
+          const cancelActions = [{
+            account: 'dex',
+            name: 'cancelorder',
+            authorization: [{ actor: this.username, permission: 'active' }],
+            data: {
+              account: this.username,
+              order_id: order.order_id,
+              market_id: order.market_id
+            }
+          }];
+
+          await this.api.transact({ actions: cancelActions }, {
+            blocksBehind: 3,
+            expireSeconds: 120
+          });
+
+          const marketName = order.market_id === 9 ? 'LOAN_XMD' : 'METAL_XMD';
+          logger.info(`Cancelled stale order ${order.order_id} on ${marketName}`);
+        } catch (e: any) {
+          logger.error(`Failed to cancel order ${order.order_id}:`, e.message);
+        }
+      }
+
+      // Withdraw any stuck funds from DEX
+      const withdrawActions = [{
+        account: 'dex',
+        name: 'withdrawall',
+        authorization: [{ actor: this.username, permission: 'active' }],
+        data: { account: this.username }
+      }];
+
+      await this.api.transact({ actions: withdrawActions }, {
+        blocksBehind: 3,
+        expireSeconds: 120
+      });
+
+      logger.info('Multi-hop cleanup: Withdrew all funds from DEX');
+
+      await telegramNotifier.notify(
+        `🧹 *Multi-hop Cleanup*\nCancelled ${ourOrders.length} stale orders on LOAN_XMD/METAL_XMD`,
+        'normal'
+      );
+
+      // After cleanup, try to recover stuck tokens
+      await this.recoverStuckTokens();
+
+    } catch (error: any) {
+      logger.error('Multi-hop cleanup failed:', error.message);
+    }
+  }
+
+  /**
+   * Recover stuck LOAN/METAL tokens above baseline by swapping back via AMM.
+   * Only swaps amounts ABOVE the baseline captured at startup.
+   * Uses 3% slippage tolerance (recovery, not profit optimization).
+   */
+  private async recoverStuckTokens(): Promise<void> {
+    try {
+      // Check LOAN above baseline
+      const loanBalance = await this.getTokenBalance('LOAN', 'loan.token');
+      const excessLoan = loanBalance - this.baselineLoan;
+
+      if (excessLoan > 100) { // Only recover if meaningful amount (100+ LOAN ≈ $0.04)
+        logger.info(`🔄 Recovering excess LOAN: ${excessLoan.toFixed(4)} (balance=${loanBalance.toFixed(4)}, baseline=${this.baselineLoan.toFixed(4)})`);
+
+        const xprloan = this.poolStates.get('XPRLOAN');
+        if (xprloan) {
+          const expectedXpr = this.calculateAmmOutput(excessLoan, xprloan, false); // LOAN is token2
+          const minXpr = (expectedXpr * 0.97).toFixed(4); // 3% slippage tolerance for recovery
+
+          const swapActions = [{
+            account: 'loan.token',
+            name: 'transfer',
+            authorization: [{ actor: this.username, permission: 'active' }],
+            data: {
+              from: this.username,
+              to: 'proton.swaps',
+              quantity: `${excessLoan.toFixed(4)} LOAN`,
+              memo: `XPRLOAN,${minXpr} XPR`
+            }
+          }];
+
+          const result = await this.api.transact({ actions: swapActions }, {
+            blocksBehind: 3,
+            expireSeconds: 120
+          });
+          logger.info(`Recovered ${excessLoan.toFixed(4)} LOAN → XPR: ` + (result as any).transaction_id);
+          await telegramNotifier.notify(
+            `🔄 *Token Recovery*\nSwapped ${excessLoan.toFixed(4)} excess LOAN → XPR`,
+            'normal'
+          );
+        }
+      }
+
+      // Check METAL above baseline
+      const metalBalance = await this.getTokenBalance('METAL', 'xtokens');
+      const excessMetal = metalBalance - this.baselineMetal;
+
+      if (excessMetal > 1) { // Only recover if meaningful amount (1+ METAL ≈ $0.14)
+        logger.info(`🔄 Recovering excess METAL: ${excessMetal.toFixed(8)} (balance=${metalBalance.toFixed(8)}, baseline=${this.baselineMetal.toFixed(8)})`);
+
+        const metaxmd = this.poolStates.get('METAXMD');
+        if (metaxmd) {
+          const expectedXmd = this.calculateAmmOutput(excessMetal, metaxmd, true); // METAL is token1
+          const minXmd = (expectedXmd * 0.97).toFixed(6); // 3% slippage tolerance for recovery
+
+          const swapActions = [{
+            account: 'xtokens',
+            name: 'transfer',
+            authorization: [{ actor: this.username, permission: 'active' }],
+            data: {
+              from: this.username,
+              to: 'proton.swaps',
+              quantity: `${excessMetal.toFixed(8)} METAL`,
+              memo: `METAXMD,${minXmd} XMD`
+            }
+          }];
+
+          const result = await this.api.transact({ actions: swapActions }, {
+            blocksBehind: 3,
+            expireSeconds: 120
+          });
+          logger.info(`Recovered ${excessMetal.toFixed(8)} METAL → XMD: ` + (result as any).transaction_id);
+          await telegramNotifier.notify(
+            `🔄 *Token Recovery*\nSwapped ${excessMetal.toFixed(8)} excess METAL → XMD (auto-redeemed later)`,
+            'normal'
+          );
+        }
+      }
+    } catch (error: any) {
+      logger.error('Token recovery failed:', error.message);
     }
   }
 
