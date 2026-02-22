@@ -12,8 +12,13 @@ import { JsonRpc, Api, JsSignatureProvider } from '@proton/js';
 import { getConfig, getLogger } from '../utils.js';
 import { telegramNotifier } from '../notifications/telegram.js';
 import { profitabilityTracker } from '../analytics/profitability-tracker.js';
+import { circuitBreaker } from '../risk/circuit-breaker.js';
+import { AtomicExecutor } from './atomic-executor.js';
 
 const logger = getLogger();
+
+// Strategy name for circuit breaker tracking
+const STRATEGY_NAME = 'triangle-arbitrage';
 
 interface TriangleState {
   pair: PairConfig;
@@ -119,11 +124,19 @@ export class TriangleArbitrage {
   private recoveryIntervalMs: number = 30000; // Check for stuck funds every 30 seconds
   private isExecuting: boolean = false; // Prevents race conditions during multi-step execution
   private lastSnipeLogTime: number = 0; // For periodic status logging
+  private atomicExecutor: AtomicExecutor | null = null;
+  private useAtomicExecution: boolean = false;
 
-  // Fee constants
-  private readonly AMM_FEE = 0.002; // 0.2%
-  private readonly DEX_FEE = 0.001; // 0.1%
-  private readonly TOTAL_FEES = 0.003; // 0.3%
+  // Portfolio-based P&L tracking (DEX fills are async, so immediate P&L is unreliable)
+  private startOfDayPortfolioValue: number = 0;
+  private lastPortfolioCheckTime: number = 0;
+  private readonly PORTFOLIO_CHECK_INTERVAL_MS = 120000; // Check every 2 minutes
+  private tradesExecutedToday: number = 0;
+
+  // Fee constants - tradingbot has 0% DEX fee + 66% AMM discount (1M XPR staked)
+  private readonly AMM_FEE = 0.00068; // 0.068% (0.2% * 0.34 after 66% discount)
+  private readonly DEX_FEE = 0.000; // 0% - tradingbot has no DEX fees!
+  private readonly TOTAL_FEES = 0.00068; // ~7 BPS total!
 
   // SAFETY: Track last verified price to detect stale data
   private lastVerifiedAmmPrice: number = 0;
@@ -171,6 +184,32 @@ export class TriangleArbitrage {
       rpc: this.rpc,
       signatureProvider: new JsSignatureProvider([privateKey])
     });
+
+    // Initialize atomic executor if configured
+    if (config.atomicArbitrage?.enabled && config.atomicArbitrage?.preferAtomic) {
+      this.atomicExecutor = new AtomicExecutor();
+      logger.info('Atomic executor initialized for triangle arbitrage');
+    }
+  }
+
+  /**
+   * Initialize and check atomic execution availability
+   */
+  private async initAtomicExecution(): Promise<void> {
+    if (!this.atomicExecutor) return;
+
+    try {
+      this.useAtomicExecution = await this.atomicExecutor.isAvailable();
+      if (this.useAtomicExecution) {
+        logger.info('✅ Atomic execution ENABLED - trades are all-or-nothing');
+        // No notification - just log it
+      } else {
+        logger.warn('⚠️ Atomic execution not available - falling back to sequential');
+      }
+    } catch (error: any) {
+      logger.error(`Failed to initialize atomic execution: ${error.message}`);
+      this.useAtomicExecution = false;
+    }
   }
 
   /**
@@ -213,11 +252,9 @@ export class TriangleArbitrage {
       return { verified: false, price: 0, error: `ALL RPC ENDPOINTS FAILED: ${errors.join(', ')}` };
     }
 
-    // Case: Only 1 price (one endpoint down) - NOTIFY but proceed
+    // Case: Only 1 price (one endpoint down) - log but proceed silently
     if (prices.length === 1) {
-      const msg = `⚠️ RPC endpoint down: ${errors.join(', ')} - continuing with ${prices[0].endpoint}`;
-      logger.warn(msg);
-      await telegramNotifier.notify(msg, 'normal');
+      logger.warn(`RPC endpoint down: ${errors.join(', ')} - continuing with ${prices[0].endpoint}`);
 
       // Still update verified price and proceed
       this.lastVerifiedAmmPrice = prices[0].price;
@@ -238,16 +275,13 @@ export class TriangleArbitrage {
 
     const avgPrice = (prices[0].price + prices[1].price) / 2;
 
-    // Check for sudden large moves from last verified price
+    // Check for sudden large moves from last verified price (log only, no notification)
     if (this.lastVerifiedAmmPrice > 0) {
       const moveFromLast = Math.abs(avgPrice - this.lastVerifiedAmmPrice) / this.lastVerifiedAmmPrice;
       if (moveFromLast > this.PRICE_DEVIATION_MAX) {
         const timeSinceLast = Date.now() - this.lastVerifiedTime;
-        // Only warn if the move happened quickly (within 60 seconds)
         if (timeSinceLast < 60000) {
-          const msg = `⚠️ LARGE PRICE MOVE: ${(moveFromLast * 100).toFixed(2)}% in ${(timeSinceLast / 1000).toFixed(0)}s - $${this.lastVerifiedAmmPrice.toFixed(6)} → $${avgPrice.toFixed(6)}`;
-          logger.warn(msg);
-          await telegramNotifier.notify(msg, 'normal');
+          logger.warn(`Large price move: ${(moveFromLast * 100).toFixed(2)}% in ${(timeSinceLast / 1000).toFixed(0)}s`);
         }
       }
     }
@@ -272,6 +306,10 @@ export class TriangleArbitrage {
     logger.info(`Min pool liquidity: $${(this.config.minPoolLiquidityUSD / 1000).toFixed(0)}K`);
     logger.info(`Dry run: ${this.config.dryRun}`);
 
+    // Initialize circuit breaker for this strategy
+    circuitBreaker.initializeStrategy(STRATEGY_NAME);
+    logger.info('Circuit breaker initialized for triangle arbitrage');
+
     const enabledPairs = this.config.pairs.filter(p => p.enabled);
     const tradingPairs = enabledPairs.filter(p => !p.monitorOnly);
     const monitorOnlyPairs = enabledPairs.filter(p => p.monitorOnly);
@@ -279,6 +317,9 @@ export class TriangleArbitrage {
     if (monitorOnlyPairs.length > 0) {
       logger.info(`👁️ Monitor-only ${monitorOnlyPairs.length} pairs: ${monitorOnlyPairs.map(p => p.name).join(', ')}`);
     }
+
+    // Initialize atomic execution if available
+    await this.initAtomicExecution();
 
     // Initial check
     await this.checkAndExecute();
@@ -520,24 +561,10 @@ export class TriangleArbitrage {
           ? ((orderbook.bestAsk - marketPrice) / marketPrice * 100).toFixed(2)
           : 'N/A';
 
-        logger.info(`DEX Orderbook: ${orderbook.bids.length} bid levels, ${orderbook.asks.length} ask levels`);
-        logger.info(`Best bid: $${orderbook.bestBid.toFixed(6)} (${bidGap}% vs AMM), Best ask: $${orderbook.bestAsk.toFixed(6)} (${askGap}% vs AMM)`);
-        logger.info(`Spread: ${orderbook.spreadBps.toFixed(1)} BPS ($${orderbook.spread.toFixed(6)})`);
-        logger.info(`Usable depth: ${usableBidDepth.toFixed(0)} XPR bids, ${usableAskDepth.toFixed(0)} XPR asks (within 10% of market)`);
-
-        // Show top 3 bid/ask levels for debugging
-        if (orderbook.bids.length > 0) {
-          const topBids = orderbook.bids.slice(0, 3)
-            .map(l => `$${l.price.toFixed(6)}:${l.quantity.toFixed(0)}`)
-            .join(', ');
-          logger.info(`Top bids: ${topBids}`);
-        }
-        if (orderbook.asks.length > 0) {
-          const topAsks = orderbook.asks.slice(0, 3)
-            .map(l => `$${l.price.toFixed(6)}:${l.quantity.toFixed(0)}`)
-            .join(', ');
-          logger.info(`Top asks: ${topAsks}`);
-        }
+        logger.debug(`DEX Orderbook: ${orderbook.bids.length} bid levels, ${orderbook.asks.length} ask levels`);
+        logger.debug(`Best bid: $${orderbook.bestBid.toFixed(6)} (${bidGap}% vs AMM), Best ask: $${orderbook.bestAsk.toFixed(6)} (${askGap}% vs AMM)`);
+        logger.debug(`Spread: ${orderbook.spreadBps.toFixed(1)} BPS ($${orderbook.spread.toFixed(6)})`);
+        logger.debug(`Usable depth: ${usableBidDepth.toFixed(0)} XPR bids, ${usableAskDepth.toFixed(0)} XPR asks (within 10% of market)`);
       }
 
       // Only consider liquidity "available" if best price is within 10% of market
@@ -612,7 +639,7 @@ export class TriangleArbitrage {
       };
     }
 
-    logger.info(`Fill simulation: ${side} ${quantityXpr.toFixed(0)} XPR @ avg $${fillSim.avgFillPrice.toFixed(6)} (${fillSim.levelsFilled} levels, ${fillSim.slippageBps.toFixed(1)} BPS slippage)`);
+    logger.debug(`Fill simulation: ${side} ${quantityXpr.toFixed(0)} XPR @ avg $${fillSim.avgFillPrice.toFixed(6)} (${fillSim.levelsFilled} levels, ${fillSim.slippageBps.toFixed(1)} BPS slippage)`);
 
     return {
       proceed: true,
@@ -641,68 +668,102 @@ export class TriangleArbitrage {
     const orderbook = await this.getDetailedOrderbook(dexSymbol);
     const opportunities: SnipeOpportunity[] = [];
 
-    // Total fees: AMM 0.2% + DEX 0.1% = 0.3%
-    const totalFeeBps = 30;
+    // Total fees: AMM 0.068% (66% discount) + DEX 0% = 0.068%
+    const totalFeeBps = 7; // ~7 BPS with staking discount + no DEX fee
 
-    // Add buffer for AMM price impact (~5 BPS for small trades)
-    // This ensures we don't waste time on marginal opportunities that fail the final check
-    const priceImpactBuffer = 5;
+    // Add buffer for AMM price impact + execution slippage (~10 BPS for safety)
+    // This ensures we don't take marginal trades that end up losing money
+    const priceImpactBuffer = 10;
     const effectiveMinProfitBps = minProfitBps + priceImpactBuffer;
 
     // Check bids (for AMM_TO_DEX path: buy on AMM, sell on DEX)
-    // Profitable when DEX bid > AMM price + fees + price impact buffer
-    for (const level of orderbook.bids) {
-      const gapBps = ((level.price - ammPrice) / ammPrice) * 10000;
-      const profitBps = gapBps - totalFeeBps - priceImpactBuffer;  // Account for impact in profit calc
+    // Aggregate all profitable levels into one larger trade up to maxTradeUsd
+    {
+      let aggregateXpr = 0;
+      let aggregateUsd = 0;
+      let worstPrice = 0;
+      let weightedPriceSum = 0;
+      let levelCount = 0;
 
-      if (profitBps >= minProfitBps) {  // Still use original minProfitBps for filtering
-        const tradeSizeXpr = level.quantity;
-        const tradeSizeUsd = tradeSizeXpr * ammPrice;
+      for (const level of orderbook.bids) {
+        const gapBps = ((level.price - ammPrice) / ammPrice) * 10000;
+        const profitBps = gapBps - totalFeeBps - priceImpactBuffer;
 
-        // Skip if too small or too large
-        if (tradeSizeUsd < minTradeUsd) continue;
+        if (profitBps >= minProfitBps) {
+          const levelUsd = level.quantity * ammPrice;
+          const remainingUsd = maxTradeUsd - aggregateUsd;
+          if (remainingUsd <= 0) break;
 
-        // Cap at max trade size
-        const cappedXpr = tradeSizeUsd > maxTradeUsd ? maxTradeUsd / ammPrice : tradeSizeXpr;
-        const cappedUsd = Math.min(tradeSizeUsd, maxTradeUsd);
+          const takeUsd = Math.min(levelUsd, remainingUsd);
+          const takeXpr = takeUsd / ammPrice;
+
+          aggregateXpr += takeXpr;
+          aggregateUsd += takeUsd;
+          weightedPriceSum += level.price * takeXpr;
+          worstPrice = level.price; // Bids sorted high→low, so last is worst
+          levelCount++;
+        }
+      }
+
+      if (aggregateUsd >= minTradeUsd) {
+        const avgPrice = weightedPriceSum / aggregateXpr;
+        const avgGapBps = ((avgPrice - ammPrice) / ammPrice) * 10000;
+        const avgProfitBps = avgGapBps - totalFeeBps - priceImpactBuffer;
 
         opportunities.push({
           path: 'AMM_TO_DEX',
-          level: { price: level.price, quantity: cappedXpr },
+          level: { price: worstPrice, quantity: aggregateXpr },
           ammPrice,
-          profitBps,
-          profitUsd: (profitBps / 10000) * cappedUsd,
-          tradeSizeUsd: cappedUsd,
-          tradeSizeXpr: cappedXpr
+          profitBps: avgProfitBps,
+          profitUsd: (avgProfitBps / 10000) * aggregateUsd,
+          tradeSizeUsd: aggregateUsd,
+          tradeSizeXpr: aggregateXpr
         });
       }
     }
 
     // Check asks (for DEX_TO_AMM path: buy on DEX, sell to AMM)
-    // Profitable when DEX ask < AMM price - fees - price impact buffer
-    for (const level of orderbook.asks) {
-      const gapBps = ((ammPrice - level.price) / ammPrice) * 10000;
-      const profitBps = gapBps - totalFeeBps - priceImpactBuffer;  // Account for impact
+    // Aggregate all profitable levels into one larger trade up to maxTradeUsd
+    {
+      let aggregateXpr = 0;
+      let aggregateUsd = 0;
+      let worstPrice = 0;
+      let weightedPriceSum = 0;
+      let levelCount = 0;
 
-      if (profitBps >= minProfitBps) {
-        const tradeSizeXpr = level.quantity;
-        const tradeSizeUsd = tradeSizeXpr * ammPrice;
+      for (const level of orderbook.asks) {
+        const gapBps = ((ammPrice - level.price) / ammPrice) * 10000;
+        const profitBps = gapBps - totalFeeBps - priceImpactBuffer;
 
-        // Skip if too small or too large
-        if (tradeSizeUsd < minTradeUsd) continue;
+        if (profitBps >= minProfitBps) {
+          const levelUsd = level.quantity * ammPrice;
+          const remainingUsd = maxTradeUsd - aggregateUsd;
+          if (remainingUsd <= 0) break;
 
-        // Cap at max trade size
-        const cappedXpr = tradeSizeUsd > maxTradeUsd ? maxTradeUsd / ammPrice : tradeSizeXpr;
-        const cappedUsd = Math.min(tradeSizeUsd, maxTradeUsd);
+          const takeUsd = Math.min(levelUsd, remainingUsd);
+          const takeXpr = takeUsd / ammPrice;
+
+          aggregateXpr += takeXpr;
+          aggregateUsd += takeUsd;
+          weightedPriceSum += level.price * takeXpr;
+          worstPrice = level.price; // Asks sorted low→high, so last is worst
+          levelCount++;
+        }
+      }
+
+      if (aggregateUsd >= minTradeUsd) {
+        const avgPrice = weightedPriceSum / aggregateXpr;
+        const avgGapBps = ((ammPrice - avgPrice) / ammPrice) * 10000;
+        const avgProfitBps = avgGapBps - totalFeeBps - priceImpactBuffer;
 
         opportunities.push({
           path: 'DEX_TO_AMM',
-          level: { price: level.price, quantity: cappedXpr },
+          level: { price: worstPrice, quantity: aggregateXpr },
           ammPrice,
-          profitBps,
-          profitUsd: (profitBps / 10000) * cappedUsd,
-          tradeSizeUsd: cappedUsd,
-          tradeSizeXpr: cappedXpr
+          profitBps: avgProfitBps,
+          profitUsd: (avgProfitBps / 10000) * aggregateUsd,
+          tradeSizeUsd: aggregateUsd,
+          tradeSizeXpr: aggregateXpr
         });
       }
     }
@@ -721,8 +782,8 @@ export class TriangleArbitrage {
         logger.info(`  ${opp.path}: ${opp.tradeSizeXpr.toFixed(0)} XPR @ $${opp.level.price.toFixed(6)} = +${opp.profitBps.toFixed(1)} BPS ($${opp.profitUsd.toFixed(2)})`);
       }
     } else {
-      // Log status every 5 seconds
-      if (!this.lastSnipeLogTime || Date.now() - this.lastSnipeLogTime > 5000) {
+      // Log status once per 24 hours
+      if (!this.lastSnipeLogTime || Date.now() - this.lastSnipeLogTime > 86400000) {
         this.lastSnipeLogTime = Date.now();
         const bestBid = orderbook.bestBid;
         const bestAsk = orderbook.bestAsk;
@@ -742,6 +803,11 @@ export class TriangleArbitrage {
   private async executeSnipe(snipe: SnipeOpportunity, pair: PairConfig): Promise<void> {
     logger.info(`🎯 SNIPING: ${snipe.path} ${snipe.tradeSizeXpr.toFixed(0)} XPR @ $${snipe.level.price.toFixed(6)}`);
     logger.info(`Expected profit (spot): ${snipe.profitBps.toFixed(1)} BPS ($${snipe.profitUsd.toFixed(2)})`);
+
+    // SAFETY CHECK 0: Block DEX_TO_AMM path - DEX buy settlement is unreliable
+    if (snipe.path === 'DEX_TO_AMM') {
+      throw new Error(`DEX_TO_AMM path disabled - DEX buy settlement issues`);
+    }
 
     // SAFETY CHECK 1: Only allow XPR pair (disable METAL/LOAN until properly implemented)
     if (pair.baseToken !== 'XPR') {
@@ -782,11 +848,7 @@ export class TriangleArbitrage {
 
     logger.info(`✅ Profitability verified: ${profitCheck.reason}`);
 
-    // Alert via Telegram
-    await telegramNotifier.notify(
-      `🎯 *SNIPE TRADE*\n\nPath: ${snipe.path}\nTarget: $${snipe.level.price.toFixed(6)}\nSize: ${snipe.tradeSizeXpr.toFixed(0)} XPR ($${snipe.tradeSizeUsd.toFixed(2)})\nAMM Impact: ${profitCheck.priceImpact?.toFixed(2)}%\n✅ Verified profitable`,
-      'high'
-    );
+    // NOTE: Telegram notification moved to AFTER trade to reduce latency
 
     // Create a state object for the execution methods
     const state: TriangleState = {
@@ -972,6 +1034,55 @@ export class TriangleArbitrage {
       } catch (error: any) {
         logger.error('Recovery AMM fallback failed:', error.message);
       }
+    }
+  }
+
+  /**
+   * Calculate total portfolio value in USD (XUSDC + XMD + XPR at AMM price)
+   * Used for circuit breaker P&L tracking instead of immediate post-trade measurement.
+   * DEX fills are async (10-60+ seconds), so immediate measurement always shows false losses.
+   */
+  private async getPortfolioValueUsd(): Promise<number> {
+    const balances = await this.getBalances();
+    const ammPrice = await this.getAmmPrice();
+    return balances.xusdc + balances.xmd + (balances.xpr * ammPrice);
+  }
+
+  /**
+   * Periodic portfolio value check for circuit breaker.
+   * Compares current portfolio to start-of-day value.
+   * Only runs if trades have been executed (no false triggers from price movement).
+   */
+  private async checkPortfolioPnl(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastPortfolioCheckTime < this.PORTFOLIO_CHECK_INTERVAL_MS) return;
+    this.lastPortfolioCheckTime = now;
+
+    // Initialize start-of-day value on first check
+    if (this.startOfDayPortfolioValue === 0) {
+      this.startOfDayPortfolioValue = await this.getPortfolioValueUsd();
+      logger.info(`📊 Portfolio baseline: $${this.startOfDayPortfolioValue.toFixed(2)}`);
+      return;
+    }
+
+    // Only check P&L if we've executed trades today
+    if (this.tradesExecutedToday === 0) return;
+
+    const currentValue = await this.getPortfolioValueUsd();
+    const dailyPnl = currentValue - this.startOfDayPortfolioValue;
+
+    // Record with circuit breaker as a single "trade result" representing portfolio change
+    // Positive = gains, Negative = losses
+    // We use this instead of per-trade recording since DEX fills are async
+    if (dailyPnl < -1) { // Only record if loss > $1 (avoid noise from price fluctuation)
+      logger.info(`📊 Portfolio check: $${currentValue.toFixed(2)} (daily P&L: $${dailyPnl.toFixed(2)}, trades: ${this.tradesExecutedToday})`);
+      // Record the total daily loss as a single result
+      // Reset and re-record so daily loss accumulator stays in sync
+      circuitBreaker.reset(STRATEGY_NAME, 'Portfolio P&L re-check');
+      circuitBreaker.recordTradeResult(STRATEGY_NAME, dailyPnl);
+    } else {
+      // Profitable or break-even - reset consecutive losses
+      circuitBreaker.reset(STRATEGY_NAME, `Portfolio profitable: $${dailyPnl.toFixed(2)}`);
     }
   }
 
@@ -1201,22 +1312,37 @@ export class TriangleArbitrage {
       return;
     }
 
+    // Step 0a: Auto-redeem stuck XMD BEFORE circuit breaker check
+    // This runs even when circuit breaker is triggered, so delayed DEX fills get recovered
+    const now = Date.now();
+    if (now - this.lastRecoveryTime >= this.recoveryIntervalMs) {
+      this.lastRecoveryTime = now;
+      try {
+        await this.autoRedeemStuckXmd();
+      } catch (e: any) {
+        logger.debug(`Auto-redeem check failed: ${e.message}`);
+      }
+    }
+
+    // Step 0b: Periodic portfolio P&L check for circuit breaker
+    // Uses actual portfolio value (after DEX fills settle) instead of immediate post-trade measurement
+    try {
+      await this.checkPortfolioPnl();
+    } catch (e: any) {
+      logger.debug(`Portfolio check failed: ${e.message}`);
+    }
+
+    // Check circuit breaker before proceeding
+    if (!circuitBreaker.canTrade(STRATEGY_NAME)) {
+      const state = circuitBreaker.getState(STRATEGY_NAME);
+      logger.warn(`🛑 Circuit breaker triggered for ${STRATEGY_NAME}: ${state?.triggerReason || 'Unknown reason'}`);
+      return;
+    }
+
     // Acquire lock immediately to prevent overlapping async operations
     this.isExecuting = true;
 
     try {
-      const now = Date.now();
-
-      // Step 0: Periodic auto-recovery check for stuck funds
-      if (now - this.lastRecoveryTime >= this.recoveryIntervalMs) {
-        const recovered = await this.autoRedeemStuckXmd();
-        if (recovered) {
-          this.lastRecoveryTime = now;
-          // Wait a moment after recovery before trading
-          return;
-        }
-        this.lastRecoveryTime = now;
-      }
 
       // Step 1: Check current balances
       const balances = await this.getBalances();
@@ -1278,10 +1404,20 @@ export class TriangleArbitrage {
             if (bestSnipe.tradeSizeUsd <= balances.xusdc * 0.95) {
               logger.info(`🎯 Executing snipe: ${bestSnipe.path} ${bestSnipe.tradeSizeXpr.toFixed(0)} XPR @ $${bestSnipe.level.price.toFixed(6)}`);
 
+              // Get balances before trade for P&L calculation
+              const preTradeBalances = await this.getBalances();
+
               try {
                 await this.executeSnipe(bestSnipe, pair);
                 this.lastTradeTime = now;
                 this.consecutiveErrors = 0;
+                this.tradesExecutedToday++;
+
+                // NOTE: Do NOT record P&L with circuit breaker here!
+                // DEX fills are async (10-60+ seconds), so immediate measurement always shows
+                // false losses. The periodic checkPortfolioPnl() handles circuit breaker updates.
+                logger.info(`📊 Snipe executed (expected: +${bestSnipe.profitBps.toFixed(1)} BPS, $${bestSnipe.profitUsd.toFixed(2)}). P&L verified via periodic portfolio check.`);
+
                 return; // Exit after successful snipe
               } catch (error: any) {
                 this.consecutiveErrors++;
@@ -1351,7 +1487,7 @@ export class TriangleArbitrage {
         );
 
         if (!fillCheck.proceed) {
-          logger.info(`Fill quality check failed: ${fillCheck.reason}`);
+          logger.debug(`Fill quality check failed: ${fillCheck.reason}`);
           return;
         }
 
@@ -1363,7 +1499,7 @@ export class TriangleArbitrage {
         const actualProfitPercent = actualGapPercent - (this.TOTAL_FEES * 100);
 
         if (actualProfitPercent < this.config.minProfitBPS / 100) {
-          logger.info(`After fill simulation, profit ${actualProfitPercent.toFixed(2)}% < min ${(this.config.minProfitBPS / 100).toFixed(2)}%`);
+          logger.debug(`After fill simulation, profit ${actualProfitPercent.toFixed(2)}% < min ${(this.config.minProfitBPS / 100).toFixed(2)}%`);
           return;
         }
 
@@ -1606,8 +1742,8 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
 
     logger.info(`✅ Price verified: $${priceCheck.price.toFixed(6)} from multiple RPCs`);
 
-    // Start tracking this trade
-    const tradeId = profitabilityTracker.startTrade(
+    // Start tracking this trade (captures pre-trade balances)
+    const tradeId = await profitabilityTracker.startTrade(
       'triangle-arbitrage',
       `${state.pair.name}:${state.bestPath}`,
       expectedProfitBps,
@@ -1618,16 +1754,31 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
     try {
       const startBalances = await this.getBalances();
 
+      // SAFETY: DEX_TO_AMM path is DISABLED due to DEX settlement issues
+      // The DEX buy orders don't settle properly, causing fund loss
+      if (state.bestPath === 'DEX_TO_AMM') {
+        logger.warn('🚫 DEX_TO_AMM path is DISABLED due to DEX settlement issues');
+        throw new Error('DEX_TO_AMM path disabled - DEX buy orders have settlement issues');
+      }
+
       if (state.bestPath === 'AMM_TO_DEX') {
         await this.executeAmmToDex(state, tradeSize);
       } else if (state.bestPath === 'DEX_TO_AMM') {
         await this.executeDexToAmm(state, tradeSize);
       }
 
-      // Get end balances to calculate actual P&L
+      // Get end balances to calculate actual P&L using total portfolio value
+      // CRITICAL: DEX fills are async (10-60s delay), so XUSDC alone gives false losses
+      // XMD = XUSDC at 1:1 (treasury), XPR valued at AMM price
       const endBalances = await this.getBalances();
+      const ammPriceForPnl = await this.getAmmPrice();
+      const startPortfolioValue = startBalances.xusdc + startBalances.xmd + (startBalances.xpr * ammPriceForPnl);
+      const endPortfolioValue = endBalances.xusdc + endBalances.xmd + (endBalances.xpr * ammPriceForPnl);
+      const actualPnl = endPortfolioValue - startPortfolioValue;
+
+      // For profitability tracker, use portfolio-based values
       const actualInputUsd = actualTradeSize;
-      const actualOutputUsd = endBalances.xusdc - startBalances.xusdc + actualTradeSize; // Net change in XUSDC
+      const actualOutputUsd = actualTradeSize + actualPnl; // tradeSize + P&L = output
 
       // Complete the trade tracking
       profitabilityTracker.completeTrade(
@@ -1637,9 +1788,17 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
         [] // Transaction IDs are logged separately
       );
 
+      // NOTE: Do NOT record P&L with circuit breaker here!
+      // DEX fills are async (10-60+ seconds), so immediate measurement always shows false losses.
+      // The periodic checkPortfolioPnl() handles circuit breaker updates.
+      this.tradesExecutedToday++;
+      logger.info(`📊 Trade P&L (immediate, unreliable): $${actualPnl.toFixed(4)} (portfolio: $${startPortfolioValue.toFixed(2)} → $${endPortfolioValue.toFixed(2)})`);
+
     } catch (error: any) {
       logger.error('Triangle execution failed:', error);
       profitabilityTracker.failTrade(tradeId, error.message);
+
+      // Don't record with circuit breaker - periodic check handles it
       await telegramNotifier.notify(`❌ Triangle arb failed: ${error.message}`, 'high');
       throw error; // Re-throw for caller to handle recovery
     }
@@ -1686,6 +1845,42 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
       throw new Error(`Pre-flight check failed: XUSDC ${balances.xusdc.toFixed(2)} < ${tradeUsd}`);
     }
 
+    // Use atomic execution if available - all-or-nothing, no stuck tokens!
+    if (this.useAtomicExecution && this.atomicExecutor) {
+      logger.info(`🔷 Using ATOMIC execution for AMM→DEX`);
+      const opportunity = {
+        path: 'AMM_TO_DEX' as const,
+        ammPrice: state.ammPrice,
+        dexPrice: state.dexPrice,
+        profitBps: state.expectedProfitPercent * 100,
+        tradeSizeUsd: tradeUsd,
+        tradeSizeXpr: tradeUsd / state.ammPrice,
+        pair: {
+          name: pair.name,
+          baseToken: pair.baseToken,
+          baseContract: pair.baseContract,
+          basePrecision: pair.basePrecision,
+          ammPoolSymbol: pair.ammPoolSymbol,
+          dexMarketSymbol: pair.dexMarketSymbol,
+          dexMarketId: pair.dexMarketId
+        }
+      };
+
+      const result = await this.atomicExecutor.execute(opportunity);
+
+      if (result.success) {
+        logger.info(`✅ Atomic AMM→DEX complete: ${result.transactionId}`);
+        return;
+      } else if (result.reverted) {
+        // Transaction reverted due to profit check - this is expected behavior
+        throw new Error(`Atomic tx reverted: ${result.error}`);
+      } else {
+        // Unexpected error - fall through to sequential execution as backup
+        logger.warn(`⚠️ Atomic execution failed, falling back to sequential: ${result.error}`);
+      }
+    }
+
+    // Sequential execution (fallback if atomic not available or failed)
     // Step 1: Buy TOKEN from AMM with XUSDC
     const tokenToBuy = tradeUsd / state.ammPrice;
     const xusdcToSpend = tradeUsd;
@@ -1710,11 +1905,8 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
 
     // Calculate effective max slippage we're allowing
     const effectiveSlippage = ((tokenToBuy - minTokenOut) / tokenToBuy) * 100;
-    logger.info(`Slippage protection: need >${minTokenOut.toFixed(precision)} ${pair.baseToken} (${effectiveSlippage.toFixed(2)}% max slip) to guarantee profit`);
-
     // Get token balance BEFORE AMM swap to track actual received
     const tokenBalanceBefore = await this.getTokenBalance(pair.baseToken, pair.baseContract);
-    logger.info(`${pair.baseToken} balance before AMM swap: ${tokenBalanceBefore.toFixed(precision)}`);
 
     const swapActions = [{
       account: 'xtokens',
@@ -1735,29 +1927,59 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
 
     logger.info('AMM swap executed: ' + (swapResult as any).transaction_id);
 
-    // Wait for blockchain state to update
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Wait for blockchain state to update - fast retries
+    let tokenBalanceAfter = tokenBalanceBefore;
+    let actualTokenReceived = 0;
+    const maxRetries = 4;
 
-    // Get token balance AFTER AMM swap to calculate ACTUAL received
-    const tokenBalanceAfter = await this.getTokenBalance(pair.baseToken, pair.baseContract);
-    const actualTokenReceived = tokenBalanceAfter - tokenBalanceBefore;
-    logger.info(`${pair.baseToken} received from AMM: ${actualTokenReceived.toFixed(precision)} (was: ${tokenBalanceBefore.toFixed(precision)}, now: ${tokenBalanceAfter.toFixed(precision)})`);
+    for (let retry = 0; retry < maxRetries; retry++) {
+      // Fast retries: 200ms, 400ms, 800ms, 1600ms
+      await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, retry)));
 
-    if (actualTokenReceived < minTokenOut * 0.99) {
-      throw new Error(`AMM swap failed - received ${actualTokenReceived.toFixed(precision)} ${pair.baseToken}, expected at least ${minTokenOut.toFixed(precision)}`);
+      tokenBalanceAfter = await this.getTokenBalance(pair.baseToken, pair.baseContract);
+      actualTokenReceived = tokenBalanceAfter - tokenBalanceBefore;
+
+      if (actualTokenReceived >= minTokenOut * 0.95) {
+        logger.info(`${pair.baseToken} received from AMM: ${actualTokenReceived.toFixed(precision)} (${200 * Math.pow(2, retry)}ms)`);
+        break;
+      }
+    }
+
+    logger.info(`${pair.baseToken} final balance: was ${tokenBalanceBefore.toFixed(precision)}, now ${tokenBalanceAfter.toFixed(precision)}, received ${actualTokenReceived.toFixed(precision)}`);
+
+    if (actualTokenReceived < minTokenOut * 0.95) {
+      throw new Error(`AMM swap failed after ${maxRetries} retries - received ${actualTokenReceived.toFixed(precision)} ${pair.baseToken}, expected at least ${minTokenOut.toFixed(precision)}`);
     }
 
     // Step 2: Sell TOKEN on DEX for XMD - CRITICAL: Use ACTUAL received, not expected!
-    const tokenToSell = Math.floor(actualTokenReceived * 0.999 * multiplier); // Sell exactly what we received minus tiny buffer
+    // Sell ALL received tokens (no buffer - we want full position exit)
+    const tokenToSell = Math.floor(actualTokenReceived * multiplier);
 
     logger.info(`Step 2: Sell ${tokenToSell/multiplier} ${pair.baseToken} on DEX @ $${state.dexPrice.toFixed(6)}`);
 
-    // Use aggressive limit order with fill_type: 0 (normal) for better fill rate
-    // Price 5% below market to sweep available bids
-    const aggressivePrice = state.dexPrice * 0.95; // 5% below market
-    const aggressivePriceRaw = Math.floor(aggressivePrice * 1000000);
+    // Calculate minimum profitable sell price based on what we actually paid
+    // We need: sellPrice > buyPrice to profit
+    // buyPrice = xusdcToSpend / actualTokenReceived
+    const effectiveBuyPrice = xusdcToSpend / actualTokenReceived;
 
-    logger.info(`Aggressive LIMIT SELL ${(tokenToSell/multiplier).toFixed(precision)} ${pair.baseToken} @ $${aggressivePrice.toFixed(6)} (5% below market)`);
+    // Minimum sell price = buy price + minimum profit margin
+    // Add 5 BPS (0.05%) profit buffer to ensure we don't break even
+    const minSellPrice = effectiveBuyPrice * 1.0005; // At least 5 BPS profit
+
+    // Use the HIGHER of: target DEX price with small buffer, or minimum profitable price
+    // This ensures we only fill at prices that guarantee profit
+    const targetPrice = state.dexPrice * 0.995; // 0.5% below target (much tighter than 5%)
+    const limitPrice = Math.max(minSellPrice, targetPrice);
+    const limitPriceRaw = Math.floor(limitPrice * 1000000);
+
+    const slippageBps = ((state.dexPrice - limitPrice) / state.dexPrice) * 10000;
+    logger.info(`DEX LIMIT SELL: ${(tokenToSell/multiplier).toFixed(precision)} ${pair.baseToken} @ $${limitPrice.toFixed(6)} (${slippageBps.toFixed(0)} BPS below target, min profitable: $${minSellPrice.toFixed(6)})`);
+
+    // CRITICAL: If limit price is ABOVE current DEX bid, the order won't fill!
+    // Check this and warn/abort if necessary
+    if (limitPrice > state.dexPrice * 1.001) {
+      throw new Error(`Limit price $${limitPrice.toFixed(6)} above DEX bid $${state.dexPrice.toFixed(6)} - trade would be unprofitable, aborting`);
+    }
 
     // Track token balance BEFORE DEX sell to calculate actual fill
     const tokenBalanceBeforeDex = await this.getTokenBalance(pair.baseToken, pair.baseContract);
@@ -1784,7 +2006,7 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
           order_type: 1, // Limit order
           order_side: 2, // Sell
           quantity: tokenToSell,
-          price: aggressivePriceRaw,
+          price: limitPriceRaw,
           bid_symbol: { sym: `${precision},${pair.baseToken}`, contract: pair.baseContract },
           ask_symbol: { sym: '6,XMD', contract: 'xmd.token' },
           trigger_price: 0,
@@ -1863,12 +2085,37 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
     logger.info(`  Actual price: $${actualExecPrice.toFixed(6)} (expected: $${state.dexPrice.toFixed(6)})`);
     logger.info(`  Slippage: ${priceSlippage.toFixed(2)}%`);
 
+    // Check if the trade was profitable.
+    // BUT: DEX fills are async (10-60+ seconds). If tokens left the wallet but
+    // near-zero XMD arrived, the order is pending on the book — not a loss.
+    // autoRedeemStuckXmd() will pick up the XMD when the fill settles.
+    const expectedXmdFromFill = tokensFilled * effectiveBuyPrice;
+    const xmdReceivedRatio = expectedXmdFromFill > 0 ? xmdBalance / expectedXmdFromFill : 0;
+
+    if (tokensFilled > 0 && xmdReceivedRatio < 0.1) {
+      // Less than 10% of expected XMD received — this is an async DEX fill, not a loss
+      logger.info(`⏳ DEX fill pending: ${tokensFilled.toFixed(4)} ${pair.baseToken} sent, only ${xmdBalance.toFixed(6)} XMD received so far (${(xmdReceivedRatio * 100).toFixed(1)}%)`);
+      logger.info(`  Order likely sitting on book — autoRedeemStuckXmd() will handle when fill arrives`);
+    } else if (actualExecPrice > 0 && actualExecPrice < effectiveBuyPrice) {
+      // Got meaningful XMD back but at a worse price than we bought — real slippage loss
+      const lossBps = ((effectiveBuyPrice - actualExecPrice) / effectiveBuyPrice) * 10000;
+      logger.warn(`⚠️ Fill slippage: Buy $${effectiveBuyPrice.toFixed(6)}, Sell $${actualExecPrice.toFixed(6)} (${lossBps.toFixed(0)} BPS loss)`);
+      if (lossBps > 100) {
+        await telegramNotifier.notify(
+          `⚠️ *Fill Slippage*\n\nBuy: $${effectiveBuyPrice.toFixed(6)}\nSell: $${actualExecPrice.toFixed(6)}\nLoss: ${lossBps.toFixed(0)} BPS`,
+          'high'
+        );
+      }
+    }
+
     // Calculate expected XMD from full fill for comparison
     const expectedXmd = tokensSent * state.dexPrice * 0.999;
     const unfilledTokens = tokensSent * (1 - fillRatio);
 
-    // If partial fill (less than 90% filled), swap remaining via AMM
-    if (fillRatio < 0.9 && unfilledTokens > 100) {
+    // If partial fill (less than 90% filled), swap remaining via AMM.
+    // BUT: skip AMM fallback if this looks like an async pending fill
+    // (tokens left wallet but near-zero XMD received = order sitting on book)
+    if (fillRatio < 0.9 && unfilledTokens > 100 && xmdReceivedRatio >= 0.1) {
       logger.info(`Partial fill detected - swapping ${unfilledTokens.toFixed(4)} ${pair.baseToken} via AMM`);
 
       const minXusdcOut = unfilledTokens * state.ammPrice * 0.97; // 3% slippage buffer
@@ -1920,9 +2167,9 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
       logger.info('Treasury conversion executed: ' + (treasuryResult as any).transaction_id);
     }
 
-    const fillStatus = fillRatio >= 0.9 ? 'Full' : `Partial (${(fillRatio * 100).toFixed(0)}%)`;
+    const fillStatus = xmdReceivedRatio < 0.1 ? 'Pending (async)' : (fillRatio >= 0.9 ? 'Full' : `Partial (${(fillRatio * 100).toFixed(0)}%)`);
     await telegramNotifier.notify(
-      `✅ *Triangle Arb Complete: ${pair.name}*\n\nPath: AMM→DEX\nFill: ${fillStatus}\nExpected profit: ~$${state.expectedProfit.toFixed(2)}`,
+      `✅ *Triangle Arb ${xmdReceivedRatio < 0.1 ? 'Order Placed' : 'Complete'}: ${pair.name}*\n\nPath: AMM→DEX\nFill: ${fillStatus}\nExpected profit: ~$${state.expectedProfit.toFixed(2)}${xmdReceivedRatio < 0.1 ? '\n\n⏳ Waiting for async fill → auto-redeem' : ''}`,
       'high'
     );
   }
@@ -1933,6 +2180,7 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
    */
   private async executeDexToAmm(state: TriangleState, tradeSize?: number): Promise<void> {
     const tradeUsd = tradeSize || this.config.maxTradeUSD;
+    const pair = state.pair;
 
     // Pre-flight balance check
     const balances = await this.getBalances();
@@ -1940,6 +2188,42 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
       throw new Error(`Pre-flight check failed: XUSDC ${balances.xusdc.toFixed(2)} < ${tradeUsd}`);
     }
 
+    // Use atomic execution if available - all-or-nothing, no stuck tokens!
+    if (this.useAtomicExecution && this.atomicExecutor) {
+      logger.info(`🔷 Using ATOMIC execution for DEX→AMM`);
+      const opportunity = {
+        path: 'DEX_TO_AMM' as const,
+        ammPrice: state.ammPrice,
+        dexPrice: state.dexPrice,
+        profitBps: state.expectedProfitPercent * 100,
+        tradeSizeUsd: tradeUsd,
+        tradeSizeXpr: tradeUsd / state.dexPrice,
+        pair: {
+          name: pair.name,
+          baseToken: pair.baseToken,
+          baseContract: pair.baseContract,
+          basePrecision: pair.basePrecision,
+          ammPoolSymbol: pair.ammPoolSymbol,
+          dexMarketSymbol: pair.dexMarketSymbol,
+          dexMarketId: pair.dexMarketId
+        }
+      };
+
+      const result = await this.atomicExecutor.execute(opportunity);
+
+      if (result.success) {
+        logger.info(`✅ Atomic DEX→AMM complete: ${result.transactionId}`);
+        return;
+      } else if (result.reverted) {
+        // Transaction reverted due to profit check - this is expected behavior
+        throw new Error(`Atomic tx reverted: ${result.error}`);
+      } else {
+        // Unexpected error - fall through to sequential execution as backup
+        logger.warn(`⚠️ Atomic execution failed, falling back to sequential: ${result.error}`);
+      }
+    }
+
+    // Sequential execution (fallback if atomic not available or failed)
     // Step 1: Convert XUSDC to XMD via Treasury
     logger.info(`Step 1: Convert ${tradeUsd.toFixed(6)} XUSDC -> XMD via Treasury`);
 
@@ -1983,24 +2267,36 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
       throw new Error(`Treasury mint failed - no XMD received`);
     }
 
-    const xmdToSpend = actualXmd * 0.99; // Use 99% of actual balance for safety
-    logger.info(`Actual XMD balance after mint: ${actualXmd.toFixed(6)}, using ${xmdToSpend.toFixed(6)}`);
+    // Use ALL XMD (no buffer - we want full position)
+    const xmdToSpend = actualXmd;
+    logger.info(`Actual XMD balance after mint: ${actualXmd.toFixed(6)}, spending all`);
 
     // Get XPR balance BEFORE DEX buy to track actual received
     const xprBalanceBefore = await this.getTokenBalance('XPR', 'eosio.token');
     logger.info(`XPR balance before DEX buy: ${xprBalanceBefore.toFixed(4)}`);
 
-    // Use aggressive limit order with fill_type: 0 (normal) for better fill rate
-    // Price 5% above market to sweep available asks
-    const aggressivePrice = state.dexPrice * 1.05; // 5% above market
-    const aggressivePriceRaw = Math.floor(aggressivePrice * 1000000);
+    // Calculate maximum price we can pay and still be profitable
+    // After buying XPR, we'll sell to AMM - need to account for AMM price impact
+    // For now, use AMM spot price as the minimum we'll receive
+    // Max buy price = AMM price - profit margin
+    const maxBuyPrice = state.ammPrice * 0.9995; // AMM price minus 5 BPS profit margin
+
+    // Use the LOWER of: target DEX price with small buffer, or maximum profitable price
+    const targetPrice = state.dexPrice * 1.005; // 0.5% above target (much tighter than 5%)
+    const limitPrice = Math.min(maxBuyPrice, targetPrice);
+    const limitPriceRaw = Math.floor(limitPrice * 1000000);
 
     // For BUY orders on this DEX, quantity = XMD amount to spend (in raw 6-decimal format)
-    // NOT the XPR amount to receive!
     const xmdToSpendRaw = Math.floor(xmdToSpend * 1e6);
-    const expectedXpr = xmdToSpend / aggressivePrice;
+    const expectedXpr = xmdToSpend / limitPrice;
 
-    logger.info(`Step 2: Aggressive LIMIT BUY ~${expectedXpr.toFixed(4)} XPR @ $${aggressivePrice.toFixed(6)} (5% above market), spending: ${xmdToSpend.toFixed(2)} XMD`);
+    const slippageBps = ((limitPrice - state.dexPrice) / state.dexPrice) * 10000;
+    logger.info(`DEX LIMIT BUY: ~${expectedXpr.toFixed(4)} XPR @ $${limitPrice.toFixed(6)} (${slippageBps.toFixed(0)} BPS above target, max profitable: $${maxBuyPrice.toFixed(6)})`);
+
+    // CRITICAL: If limit price is BELOW current DEX ask, the order won't fill!
+    if (limitPrice < state.dexPrice * 0.999) {
+      throw new Error(`Limit price $${limitPrice.toFixed(6)} below DEX ask $${state.dexPrice.toFixed(6)} - trade would be unprofitable, aborting`);
+    }
 
     const dexActions = [
       {
@@ -2024,7 +2320,7 @@ ${this.config.dryRun ? '⚠️ DRY RUN MODE' : '🚀 EXECUTING NOW...'}`;
           order_type: 1, // Limit order
           order_side: 1, // Buy
           quantity: xmdToSpendRaw,  // XMD amount in raw (6 decimals)
-          price: aggressivePriceRaw,
+          price: limitPriceRaw,
           bid_symbol: { sym: '4,XPR', contract: 'eosio.token' },
           ask_symbol: { sym: '6,XMD', contract: 'xmd.token' },
           trigger_price: 0,
