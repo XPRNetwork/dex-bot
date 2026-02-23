@@ -1149,7 +1149,7 @@ export class MultiHopArbitrage {
       const currentProfit = freshPath ? freshPath.profitBps.toFixed(1) : 'N/A';
       logger.warn(`❌ LOAN_BRIDGE ABORTED: Price moved. Fresh profit: ${currentProfit} BPS < required ${this.config.minProfitBps} BPS`);
       await telegramNotifier.notify(
-        `❌ LOAN_BRIDGE aborted: Price moved. Fresh profit ${currentProfit} BPS < ${this.config.minProfitBps} BPS required`,
+        `❌ LOAN BRIDGE aborted: Price moved. Fresh profit ${currentProfit} BPS (need ${this.config.minProfitBps})`,
         'normal'
       );
       throw new Error(`Price moved: profit dropped to ${currentProfit} BPS`);
@@ -1649,7 +1649,7 @@ export class MultiHopArbitrage {
       const currentProfit = freshPath ? freshPath.profitBps.toFixed(1) : 'N/A';
       logger.warn(`❌ ${path.name} ABORTED: Price moved. Fresh profit: ${currentProfit} BPS < required ${this.config.minProfitBps} BPS`);
       await telegramNotifier.notify(
-        `❌ ${path.name} aborted: Price moved. Fresh profit ${currentProfit} BPS < ${this.config.minProfitBps} BPS required`,
+        `❌ ${path.name} aborted: Price moved. Fresh profit ${currentProfit} BPS (need ${this.config.minProfitBps})`,
         'normal'
       );
       throw new Error(`Price moved: profit dropped to ${currentProfit} BPS`);
