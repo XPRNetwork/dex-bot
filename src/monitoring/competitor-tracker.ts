@@ -22,8 +22,46 @@ interface TradeAction {
   trxId: string;
 }
 
+interface DexExecution {
+  timestamp: string;
+  tradeId: string;
+  marketId: number;
+  token: string;
+  price: number;
+  bidUser: string;
+  askUser: string;
+  baseAmount: number;  // Token amount
+  quoteAmount: number; // XMD amount
+  isBuy: boolean;      // true if bidUser is the taker (buying)
+}
+
+// Market ID to token mapping with price divisor for proper scaling
+const MARKET_TOKENS: Record<number, { symbol: string; precision: number; priceDivisor: number }> = {
+  1:  { symbol: 'XPR',   precision: 4, priceDivisor: 1000000 },    // XPR_XMD
+  2:  { symbol: 'XBTC',  precision: 8, priceDivisor: 1000000 },    // XBTC_XMD
+  3:  { symbol: 'XETH',  precision: 8, priceDivisor: 1000000 },    // XETH_XMD
+  7:  { symbol: 'XMT',   precision: 8, priceDivisor: 1000000 },    // XMT_XMD
+  9:  { symbol: 'LOAN',  precision: 4, priceDivisor: 1000000 },    // LOAN_XMD
+  10: { symbol: 'METAL', precision: 8, priceDivisor: 1000000 },    // METAL_XMD
+  12: { symbol: 'XDOGE', precision: 6, priceDivisor: 1000000 },    // XDOGE_XMD
+  13: { symbol: 'XADA',  precision: 6, priceDivisor: 1000000 },    // XADA_XMD (old)
+  14: { symbol: 'XLTC',  precision: 8, priceDivisor: 1000000 },    // XLTC_XMD
+  15: { symbol: 'XXRP',  precision: 6, priceDivisor: 1000000 },    // XXRP_XMD
+  16: { symbol: 'XBNB',  precision: 8, priceDivisor: 1000000 },    // XBNB_XMD
+  17: { symbol: 'XSOL',  precision: 6, priceDivisor: 1000 },       // XSOL_XMD (different scaling)
+  18: { symbol: 'XADA',  precision: 6, priceDivisor: 1000000 },    // XADA_XMD (new)
+  19: { symbol: 'XXRP',  precision: 6, priceDivisor: 1000000 },    // XXRP_XMD (alt)
+};
+
+// AMM Pool names
+const VALID_POOLS = new Set([
+  'XPRUSDC', 'XPRLOAN', 'METAXPR', 'METAXMD', 'XMTUSDC',
+  'BTCUSDC', 'ETHUSDC', 'DOGEUSD', 'SOLUSDC', 'BNBUSDC'
+]);
+
 interface PotentialArb {
   account: string;
+  trxId: string;  // Group by transaction ID to avoid mixing concurrent arbs
   actions: TradeAction[];
   firstSeen: number;
 }
@@ -38,6 +76,12 @@ interface DetectedArb {
   profitPercent: number;
   timestamp: string;
   trxIds: string[];
+  // Enhanced details
+  dexPrice?: number;
+  ammPool?: string;
+  ammPrice?: number;
+  tradeValueUsd?: number;
+  verifiedProfit?: boolean;  // true if profit came from actual data, false if estimated
 }
 
 export class CompetitorTracker {
@@ -48,16 +92,24 @@ export class CompetitorTracker {
   private seenTrxIds: Set<string> = new Set();
   private ourAccount: string;
 
-  // Accounts to ignore (our own, known contracts, etc.)
+  // Accounts to ignore (our own, known contracts, known non-arbers)
   private ignoredAccounts: Set<string> = new Set([
+    // System contracts
     'proton.swaps',
     'dex',
+    'simpledex',
     'xmd.treasury',
     'eosio.token',
     'xtokens',
     'xmd.token',
     'loan.token',
+    'simpletoken',
     'fees.swaps',
+    // Known non-arb accounts (LP providers, regular traders, etc.)
+    'supermann1',    // Uses LOAN protocol, not arbitrage
+    'sweeney45',     // LP management, not arbitrage
+    'metalmarkets',  // Market maker, not arb
+    'snipsniper11',  // Regular trader
   ]);
 
   // Track recently alerted arbs to avoid duplicates
@@ -79,11 +131,11 @@ export class CompetitorTracker {
     logger.info('Competitor tracker starting...');
     logger.info(`Ignoring accounts: ${this.ourAccount}, proton.swaps, dex, xmd.treasury`);
 
-    // Check every 10 seconds
-    this.checkInterval = setInterval(() => this.checkForArbitrages(), 10000);
+    // Check every 60 seconds (reduced from 10s to minimize impact on trading)
+    this.checkInterval = setInterval(() => this.checkForArbitrages(), 60000);
 
-    // Initial check
-    await this.checkForArbitrages();
+    // Initial check after a delay to not interfere with startup
+    setTimeout(() => this.checkForArbitrages(), 5000);
   }
 
   stop(): void {
@@ -105,8 +157,20 @@ export class CompetitorTracker {
       // Fetch recent treasury operations
       const treasuryOps = await this.fetchRecentTreasuryOps();
 
+      // Fetch waxptreasury transfers (quantatrader logs profit in memo)
+      const waxpOps = await this.fetchWaxpTreasuryOps();
+
+      // Fetch mmmaster transfers (wwworker logs profit in memo)
+      const mmmasterOps = await this.fetchMmmasterOps();
+
+      // Fetch SimpleDEX swaps
+      const sdexSwaps = await this.fetchSimpleDexSwaps();
+
       // Combine and process
-      const allActions = [...ammSwaps, ...dexTrades, ...treasuryOps];
+      const allActions = [...ammSwaps, ...dexTrades, ...treasuryOps, ...waxpOps, ...mmmasterOps, ...sdexSwaps];
+
+      // Log only occasionally to reduce noise
+      // (competitor data is saved to database for later analysis)
 
       // Group by account
       this.processActions(allActions);
@@ -166,31 +230,73 @@ export class CompetitorTracker {
 
   private async fetchRecentDexTrades(): Promise<TradeAction[]> {
     try {
-      const response = await fetch(
-        `https://proton.eosusa.io/v2/history/get_actions?account=dex&filter=dex:process&limit=50&sort=desc`
+      // Fetch logexec actions - these have the actual trade execution details
+      const execResponse = await fetch(
+        `https://proton.eosusa.io/v2/history/get_actions?account=dex&filter=dex:logexec&limit=50&sort=desc`
       );
-      const data: any = await response.json();
+      const execData: any = await execResponse.json();
 
-      if (!data.actions) return [];
+      const results: TradeAction[] = [];
 
-      // Also fetch placeorder actions
+      // Process logexec to get actual trade details
+      for (const a of (execData.actions || [])) {
+        if (this.seenTrxIds.has(a.trx_id)) continue;
+        this.seenTrxIds.add(a.trx_id);
+
+        const data = a.act?.data;
+        if (!data) continue;
+
+        const marketId = data.market_id;
+        const marketInfo = MARKET_TOKENS[marketId];
+        const token = marketInfo?.symbol || `MKT${marketId}`;
+        const precision = marketInfo?.precision || 8;
+        const priceDivisor = marketInfo?.priceDivisor || 1000000;
+
+        // Parse the execution details
+        const baseAmount = parseInt(data.bid_total || '0') / Math.pow(10, precision);
+        const quoteAmount = parseInt(data.ask_amount || '0') / Math.pow(10, 6); // XMD has 6 decimals
+        const price = parseInt(data.price || '0') / priceDivisor;
+
+        // bid_user is the buyer, ask_user is the seller
+        const bidUser = data.bid_user;
+        const askUser = data.ask_user;
+
+        // Add both users as potential arbers
+        for (const user of [bidUser, askUser]) {
+          if (!user || this.ignoredAccounts.has(user)) continue;
+
+          results.push({
+            timestamp: a.timestamp,
+            account: user,
+            action: 'dex_exec',
+            contract: 'dex',
+            data: {
+              ...data,
+              token,
+              baseAmount,
+              quoteAmount,
+              price,
+              isSeller: user === askUser,
+              isBuyer: user === bidUser,
+              marketId
+            },
+            trxId: a.trx_id
+          });
+        }
+      }
+
+      // Also fetch placeorder for order tracking
       const orderResponse = await fetch(
         `https://proton.eosusa.io/v2/history/get_actions?account=dex&filter=dex:placeorder&limit=50&sort=desc`
       );
       const orderData: any = await orderResponse.json();
 
-      const processActions = data.actions || [];
-      const orderActions = orderData.actions || [];
-
-      // Get the accounts that placed orders
-      const results: TradeAction[] = [];
-
-      for (const a of orderActions) {
+      for (const a of (orderData.actions || [])) {
         if (this.seenTrxIds.has(a.trx_id)) continue;
         this.seenTrxIds.add(a.trx_id);
 
         const account = a.act?.data?.account;
-        if (!account) continue;
+        if (!account || this.ignoredAccounts.has(account)) continue;
 
         results.push({
           timestamp: a.timestamp,
@@ -242,138 +348,698 @@ export class CompetitorTracker {
     }
   }
 
+  private async fetchWaxpTreasuryOps(): Promise<TradeAction[]> {
+    try {
+      // Fetch transfers TO waxptreasury - competitors log actual profit in memo
+      // Memo format: "3.3952 XPR|61|XPR/METAL/XMD|xpr->xpr->dex"
+      const response = await fetch(
+        `https://proton.eosusa.io/v2/history/get_actions?account=waxptreasury&filter=*:transfer&limit=30&sort=desc`
+      );
+      const data: any = await response.json();
+
+      if (!data.actions) return [];
+
+      return data.actions
+        .filter((a: any) => {
+          const isToWaxp = a.act?.data?.to === 'waxptreasury';
+          const isNew = !this.seenTrxIds.has(a.trx_id);
+          const memo = a.act?.data?.memo || '';
+          // Only track transfers with profit info in memo (format: "X.XX TOKEN|...")
+          return isToWaxp && isNew && memo.includes('|');
+        })
+        .map((a: any) => {
+          this.seenTrxIds.add(a.trx_id);
+          const memo = a.act?.data?.memo || '';
+          // Parse profit from memo: "3.3952 XPR|61|XPR/METAL/XMD|xpr->xpr->dex"
+          const parts = memo.split('|');
+          const profitPart = parts[0] || '';
+          const profitMatch = profitPart.match(/^([\d.]+)\s+(\w+)/);
+          const profitAmount = profitMatch ? parseFloat(profitMatch[1]) : 0;
+          const profitToken = profitMatch ? profitMatch[2] : '';
+          const path = parts[2] || ''; // e.g., "XPR/METAL/XMD"
+
+          // Silently capture - no logging to reduce noise
+          return {
+            timestamp: a.timestamp,
+            account: a.act?.data?.from,
+            action: 'waxp_profit',
+            contract: 'waxptreasury',
+            data: {
+              ...a.act?.data,
+              profitAmount,
+              profitToken,
+              path
+            },
+            trxId: a.trx_id
+          };
+        });
+    } catch (error) {
+      return [];
+    }
+  }
+
+  private async fetchMmmasterOps(): Promise<TradeAction[]> {
+    try {
+      // Fetch transfers TO mmmaster - wwworker logs profit in memo
+      // Memo format: "yyyminer2|17.772302 XUSDC|17.799344 XUSDC" (input|output)
+      const response = await fetch(
+        `https://proton.eosusa.io/v2/history/get_actions?account=mmmaster&filter=*:transfer&limit=30&sort=desc`
+      );
+      const data: any = await response.json();
+
+      if (!data.actions) return [];
+
+      return data.actions
+        .filter((a: any) => {
+          const isToMmmaster = a.act?.data?.to === 'mmmaster';
+          const isNew = !this.seenTrxIds.has(a.trx_id);
+          const memo = a.act?.data?.memo || '';
+          // Only track transfers with profit info in memo (format: "xxx|input|output")
+          return isToMmmaster && isNew && memo.includes('|');
+        })
+        .map((a: any) => {
+          this.seenTrxIds.add(a.trx_id);
+          const memo = a.act?.data?.memo || '';
+          // Parse profit from memo: "yyyminer2|17.772302 XUSDC|17.799344 XUSDC"
+          const parts = memo.split('|');
+          let profitAmount = 0;
+          let profitToken = 'XUSDC';
+          let memoPrefix = '';
+
+          if (parts.length >= 3) {
+            memoPrefix = parts[0] || ''; // e.g., "yyyminer2" or "xxxminer3"
+            const inputMatch = parts[1].match(/^([\d.]+)\s*(\w+)?/);
+            const outputMatch = parts[2].match(/^([\d.]+)\s*(\w+)?/);
+            if (inputMatch && outputMatch) {
+              const inputAmt = parseFloat(inputMatch[1]) || 0;
+              const outputAmt = parseFloat(outputMatch[1]) || 0;
+              profitAmount = outputAmt - inputAmt;
+              profitToken = outputMatch[2] || inputMatch[2] || 'XUSDC';
+            }
+          }
+
+          // Silently capture - no logging to reduce noise
+          return {
+            timestamp: a.timestamp,
+            account: a.act?.data?.from,
+            action: 'mmmaster_profit',
+            contract: 'mmmaster',
+            data: {
+              ...a.act?.data,
+              profitAmount,
+              profitToken,
+              memoPrefix
+            },
+            trxId: a.trx_id
+          };
+        });
+    } catch (error) {
+      return [];
+    }
+  }
+
+  private async fetchSimpleDexSwaps(): Promise<TradeAction[]> {
+    try {
+      const response = await fetch(
+        `https://proton.eosusa.io/v2/history/get_actions?account=simpledex&filter=*:transfer&limit=50&sort=desc`
+      );
+      const data: any = await response.json();
+
+      if (!data.actions) return [];
+
+      return data.actions
+        .filter((a: any) => {
+          const isSwap = a.act?.data?.to === 'simpledex' &&
+                         a.act?.data?.memo?.startsWith('swap:');
+          const isNew = !this.seenTrxIds.has(a.trx_id);
+          return isSwap && isNew;
+        })
+        .map((a: any) => {
+          this.seenTrxIds.add(a.trx_id);
+          const memo = a.act?.data?.memo || '';
+          // Parse memo: "swap:POOL_ID:MIN_OUT:IS_TOKEN_A_IN"
+          const memoParts = memo.split(':');
+          const poolId = parseInt(memoParts[1]) || 0;
+          const qty = a.act?.data?.quantity || '';
+          const symbol = qty.split(' ')[1] || '';
+
+          return {
+            timestamp: a.timestamp,
+            account: a.act?.data?.from,
+            action: 'sdex_swap',
+            contract: 'simpledex',
+            data: {
+              ...a.act?.data,
+              poolId,
+              symbol,
+              amount: parseFloat(qty) || 0
+            },
+            trxId: a.trx_id
+          };
+        });
+    } catch (error) {
+      return [];
+    }
+  }
+
   private processActions(actions: TradeAction[]): void {
     for (const action of actions) {
       if (this.ignoredAccounts.has(action.account)) continue;
+      if (!action.trxId) continue;
 
-      // Get or create pending arb for this account
-      let pending = this.pendingArbs.get(action.account);
-      if (!pending) {
-        pending = {
-          account: action.account,
-          actions: [],
-          firstSeen: Date.now()
-        };
-        this.pendingArbs.set(action.account, pending);
+      // For profit tracking actions (waxp_profit, mmmaster_profit), group by account + time window
+      // because these are separate transactions from the actual arb
+      const isProfitAction = action.action === 'waxp_profit' || action.action === 'mmmaster_profit';
+
+      if (isProfitAction) {
+        // Find a recent pending arb from the same account (within 10 seconds)
+        // and attach this profit info to it, OR create a new entry
+        let foundPending = false;
+        for (const [key, pending] of this.pendingArbs.entries()) {
+          if (pending.account === action.account) {
+            const ageMs = Date.now() - pending.firstSeen;
+            if (ageMs < 10000) {
+              // Attach profit action to this pending arb
+              pending.actions.push(action);
+              foundPending = true;
+              break;
+            }
+          }
+        }
+
+        if (!foundPending) {
+          // Create new entry keyed by account-time (for profit-only signals)
+          const key = `${action.account}-profit-${Date.now()}`;
+          this.pendingArbs.set(key, {
+            account: action.account,
+            trxId: action.trxId,
+            actions: [action],
+            firstSeen: Date.now()
+          });
+        }
+      } else {
+        // Group by transaction ID to avoid mixing concurrent arbs from same account
+        const key = action.trxId;
+        let pending = this.pendingArbs.get(key);
+        if (!pending) {
+          pending = {
+            account: action.account,
+            trxId: action.trxId,
+            actions: [],
+            firstSeen: Date.now()
+          };
+          this.pendingArbs.set(key, pending);
+        }
+        pending.actions.push(action);
       }
-
-      pending.actions.push(action);
     }
   }
 
   private async detectCompletedArbitrages(): Promise<void> {
-    for (const [account, pending] of this.pendingArbs.entries()) {
-      // Need at least 2 actions for an arb
-      if (pending.actions.length < 2) continue;
+    const now = Date.now();
 
-      // Look for AMM + DEX combo
+    for (const [key, pending] of this.pendingArbs.entries()) {
+      const account = pending.account;
+
+      // Look for AMM + DEX combo (including dex_exec)
       const hasAmm = pending.actions.some(a => a.action === 'amm_swap');
-      const hasDex = pending.actions.some(a => a.action === 'dex_order');
+      const hasDex = pending.actions.some(a => a.action === 'dex_order' || a.action === 'dex_exec');
       const hasTreasury = pending.actions.some(a =>
         a.action === 'treasury_mint' || a.action === 'treasury_redeem'
       );
+      const hasWaxpProfit = pending.actions.some(a => a.action === 'waxp_profit');
+      const hasMmmasterProfit = pending.actions.some(a => a.action === 'mmmaster_profit');
+      const hasActualProfit = hasWaxpProfit || hasMmmasterProfit;
 
-      if (hasAmm && hasDex) {
-        // Potential arbitrage detected!
-        const arb = this.analyzeArbitrage(account, pending.actions);
-        if (arb && arb.profitUsd > 0.01) {
-          await this.alertArbitrage(arb);
+      // SimpleDEX arbs: 2+ sdex_swap actions in one transaction = triangle arb
+      const sdexSwaps = pending.actions.filter(a => a.action === 'sdex_swap');
+      if (sdexSwaps.length >= 2) {
+        // Fetch full tx to calculate net XPR profit
+        const sdexArb = await this.analyzeSimpleDexArb(account, pending.trxId, sdexSwaps);
+        if (sdexArb) {
+          // Save to DB silently (no Telegram alerts for SimpleDEX competitors)
+          this.saveToDatabase(sdexArb);
+          logger.debug(`SimpleDEX competitor: ${account} ${sdexArb.token} ${sdexArb.profitUsd > 0 ? '+' : ''}$${sdexArb.profitUsd.toFixed(4)}`);
         }
-        // Clear this account's pending actions
-        this.pendingArbs.delete(account);
-      } else if (hasAmm && hasTreasury) {
-        // AMM + Treasury arb
-        const arb = this.analyzeArbitrage(account, pending.actions);
-        if (arb && arb.profitUsd > 0.01) {
-          await this.alertArbitrage(arb);
+        this.pendingArbs.delete(key);
+        continue;
+      }
+
+      // DETECTION SIGNALS (AMM+DEX arbs):
+      // 1. Has profit logging contract (waxp/mmmaster) = definitely an arber (even with 1 action)
+      // 2. Has ALL THREE components (AMM + DEX + Treasury) within 5 seconds = likely arber
+      // 3. Has 2+ actions with both AMM and either DEX or Treasury
+
+      let shouldProcess = false;
+      let highConfidence = hasActualProfit;
+
+      if (hasActualProfit) {
+        // Accounts using profit logging contracts are definitely arbing
+        shouldProcess = true;
+      } else if (pending.actions.length >= 2) {
+        if (hasAmm && hasDex && hasTreasury) {
+          // All three components present - check timing
+          const timestamps = pending.actions.map(a => new Date(a.timestamp).getTime());
+          const minTime = Math.min(...timestamps);
+          const maxTime = Math.max(...timestamps);
+          const timeSpanMs = maxTime - minTime;
+
+          // Only process if all actions within 5 seconds (real arbs are fast)
+          if (timeSpanMs <= 5000) {
+            shouldProcess = true;
+          }
         }
-        this.pendingArbs.delete(account);
-      } else if (hasDex && hasTreasury) {
-        // DEX + Treasury arb
-        const arb = this.analyzeArbitrage(account, pending.actions);
-        if (arb && arb.profitUsd > 0.01) {
-          await this.alertArbitrage(arb);
+      }
+
+      if (shouldProcess) {
+        // Wait up to 3 seconds for additional profit data to arrive
+        const ageMs = now - pending.firstSeen;
+        if (!hasActualProfit && ageMs < 3000) {
+          continue; // Wait for more actions
         }
-        this.pendingArbs.delete(account);
+
+        const arb = await this.analyzeArbitrage(account, pending.actions, highConfidence);
+
+        // Alert if we have verified profit > $0.001
+        if (arb && arb.verifiedProfit && arb.profitUsd > 0.001) {
+          await this.alertArbitrage(arb);
+        } else if (arb && !arb.verifiedProfit && arb.profitUsd > 0.01) {
+          // Profit was estimated - skip to avoid false positives
+          logger.info(`Skipping unverified arb (likely false positive): ${account} est=${arb.profitPercent.toFixed(2)}%`);
+        }
+        // Clear this entry
+        this.pendingArbs.delete(key);
+      } else {
+        // Clean up old entries that never matched criteria (after 30 seconds)
+        const ageMs = now - pending.firstSeen;
+        if (ageMs > 30000) {
+          this.pendingArbs.delete(key);
+        }
       }
     }
   }
 
-  private analyzeArbitrage(account: string, actions: TradeAction[]): DetectedArb | null {
+  /**
+   * Analyze a SimpleDEX triangle arb by fetching the full transaction
+   * and computing net token flows. Profit = net XPR gained.
+   */
+  private async analyzeSimpleDexArb(account: string, trxId: string, sdexSwaps: TradeAction[]): Promise<DetectedArb | null> {
     try {
-      // Sort by timestamp
-      actions.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      const response = await fetch(
+        `https://proton.eosusa.io/v2/history/get_transaction?id=${trxId}`
+      );
+      const data: any = await response.json();
+      if (!data.actions) return null;
 
-      let inputAmount = 0;
-      let outputAmount = 0;
-      let token = 'UNKNOWN';
-      let type: 'AMM_TO_DEX' | 'DEX_TO_AMM' | 'TRIANGLE' = 'TRIANGLE';
+      // Track net flows for this account
+      const netFlows: Record<string, number> = {};
+      for (const action of data.actions) {
+        if (action.act?.name !== 'transfer') continue;
+        const from = action.act.data?.from;
+        const to = action.act.data?.to;
+        const qty = action.act.data?.quantity || '';
+        const amount = parseFloat(qty) || 0;
+        const symbol = qty.split(' ')[1] || '';
+        if (!symbol) continue;
+        if (!netFlows[symbol]) netFlows[symbol] = 0;
+        if (to === account) netFlows[symbol] += amount;
+        if (from === account) netFlows[symbol] -= amount;
+      }
 
-      // Analyze the flow
-      for (const action of actions) {
-        if (action.action === 'amm_swap') {
-          const qty = action.data?.quantity || '';
-          const amount = parseFloat(qty) || 0;
-          const symbol = qty.split(' ')[1] || '';
+      // Profit is net XPR gained (triangle arbs start and end with XPR)
+      const xprProfit = netFlows['XPR'] || 0;
+      const xprPrice = 0.00213; // approximate
+      const profitUsd = xprProfit * xprPrice;
 
-          // Check memo for expected output
-          const memo = action.data?.memo || '';
-
-          if (symbol === 'XUSDC' || symbol === 'XMD') {
-            inputAmount = amount;
-            type = 'AMM_TO_DEX';
-          } else {
-            token = symbol;
-          }
-        } else if (action.action === 'dex_order') {
-          // DEX order - check if buy or sell
-          const orderSide = action.data?.order_side;
-          const quantity = action.data?.quantity || 0;
-          const price = action.data?.price || 0;
-
-          // order_side: 1 = buy, 2 = sell
-          if (orderSide === 2) {
-            // Selling on DEX
-            type = 'AMM_TO_DEX';
-          } else {
-            type = 'DEX_TO_AMM';
-          }
-        } else if (action.action === 'treasury_redeem') {
-          const qty = action.data?.quantity || '';
-          outputAmount = parseFloat(qty) || 0;
-        } else if (action.action === 'treasury_mint') {
-          const qty = action.data?.quantity || '';
-          inputAmount = parseFloat(qty) || 0;
+      // Identify intermediate token (the non-XPR, non-EXIT token)
+      const poolIds = sdexSwaps.map(s => s.data?.poolId).filter(Boolean);
+      let token = 'SDEX';
+      for (const swap of sdexSwaps) {
+        const sym = swap.data?.symbol;
+        if (sym && sym !== 'XPR' && sym !== 'EXIT') {
+          token = sym;
+          break;
         }
       }
 
-      // Try to estimate profit from the actions
-      // This is a rough estimate - we'd need to track full tx flow for accuracy
-      const profitUsd = this.estimateProfit(actions);
-      const profitPercent = inputAmount > 0 ? (profitUsd / inputAmount) * 100 : 0;
-
-      if (profitUsd <= 0) return null;
+      // Estimate trade size from the first XPR sent
+      const firstXprSwap = sdexSwaps.find(s => s.data?.symbol === 'XPR');
+      const tradeSizeXpr = firstXprSwap?.data?.amount || 0;
+      const tradeSizeUsd = tradeSizeXpr * xprPrice;
+      const profitBps = tradeSizeXpr > 0 ? (xprProfit / tradeSizeXpr) * 10000 : 0;
 
       return {
         account,
-        type,
+        type: 'TRIANGLE',
         token,
-        inputAmount,
-        outputAmount,
+        inputAmount: tradeSizeUsd,
+        outputAmount: tradeSizeUsd + profitUsd,
         profitUsd,
-        profitPercent,
-        timestamp: actions[0].timestamp,
-        trxIds: actions.map(a => a.trxId)
+        profitPercent: tradeSizeUsd > 0 ? (profitUsd / tradeSizeUsd) * 100 : 0,
+        timestamp: sdexSwaps[0].timestamp,
+        trxIds: [trxId],
+        tradeValueUsd: tradeSizeUsd,
+        verifiedProfit: true
       };
     } catch (error) {
       return null;
     }
   }
 
+  private async analyzeArbitrage(account: string, actions: TradeAction[], highConfidence: boolean = false): Promise<DetectedArb | null> {
+    try {
+      // Sort by timestamp
+      actions.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      let token = 'UNKNOWN';
+      let type: 'AMM_TO_DEX' | 'DEX_TO_AMM' | 'TRIANGLE' = 'TRIANGLE';
+      let dexPrice: number | undefined;
+      let ammPool: string | undefined;
+      let tradeValueUsd = 0;
+
+      // Analyze actions to determine token and type
+      for (const action of actions) {
+        if (action.action === 'amm_swap') {
+          const qty = action.data?.quantity || '';
+          const amount = parseFloat(qty) || 0;
+          const symbol = qty.split(' ')[1] || '';
+          const memo = action.data?.memo || '';
+
+          // Extract pool from memo (format: "POOLNAME,amount" or "POOL1>POOL2,amount")
+          const poolMatch = memo.match(/^([A-Z]+)[>,]/);
+          if (poolMatch && VALID_POOLS.has(poolMatch[1])) {
+            ammPool = poolMatch[1];
+          }
+
+          // Identify the token being arbitraged
+          if (symbol !== 'XUSDC' && symbol !== 'XMD') {
+            token = symbol;
+            // Estimate USD value
+            const prices: Record<string, number> = {
+              'XPR': 0.00248, 'METAL': 0.117, 'LOAN': 0.0004,
+              'XBTC': 98000, 'XETH': 3200, 'XSOL': 103,
+              'XDOGE': 0.26, 'XMT': 1.10, 'XXRP': 2.45,
+            };
+            tradeValueUsd = Math.max(tradeValueUsd, amount * (prices[symbol] || 0));
+          } else {
+            tradeValueUsd = Math.max(tradeValueUsd, amount);
+          }
+        } else if (action.action === 'dex_exec') {
+          const data = action.data;
+          const execToken = data.token;
+
+          // Only update token if not already set or if this is more specific
+          if (execToken && execToken !== 'UNKNOWN' && (token === 'UNKNOWN' || token === execToken)) {
+            token = execToken;
+            // Only use price if it matches the token we're tracking
+            if (data.price) {
+              dexPrice = data.price;
+            }
+          }
+
+          // Use quote amount as trade value
+          const quoteAmt = data.quoteAmount || 0;
+          tradeValueUsd = Math.max(tradeValueUsd, quoteAmt);
+
+          // Determine direction
+          if (data.isSeller) {
+            type = 'AMM_TO_DEX';
+          } else if (data.isBuyer) {
+            type = 'DEX_TO_AMM';
+          }
+        } else if (action.action === 'dex_order') {
+          const orderSide = action.data?.order_side;
+          if (orderSide === 2) {
+            type = 'AMM_TO_DEX';
+          } else {
+            type = 'DEX_TO_AMM';
+          }
+        } else if (action.action === 'treasury_redeem' || action.action === 'treasury_mint') {
+          const qty = action.data?.quantity || '';
+          const amount = parseFloat(qty) || 0;
+          tradeValueUsd = Math.max(tradeValueUsd, amount);
+        }
+      }
+
+      // Try to get actual profit from waxptreasury memo
+      let profitUsd = 0;
+      let profitPercent = 0;
+      let actualProfitFound = false;
+
+      const waxpAction = actions.find(a => a.action === 'waxp_profit');
+      if (waxpAction) {
+        const profitAmount = waxpAction.data?.profitAmount || 0;
+        const profitToken = waxpAction.data?.profitToken || '';
+        const path = waxpAction.data?.path || '';
+
+        // Convert profit to USD
+        const prices: Record<string, number> = {
+          'XPR': 0.00251, 'METAL': 0.118, 'LOAN': 0.0004,
+          'XBTC': 98000, 'XETH': 3200, 'XSOL': 103,
+          'XDOGE': 0.26, 'XMT': 1.10, 'XXRP': 2.45,
+          'XUSDC': 1.0, 'XMD': 1.0,
+        };
+        profitUsd = profitAmount * (prices[profitToken] || 0);
+        actualProfitFound = profitUsd > 0;
+
+        // Extract token from path if not set (e.g., "XPR/METAL/XMD" -> first token)
+        if (token === 'UNKNOWN' && path) {
+          const pathTokens = path.split('/');
+          if (pathTokens[0] && pathTokens[0] !== 'XMD' && pathTokens[0] !== 'XUSDC') {
+            token = pathTokens[0];
+          }
+        }
+      }
+
+      // Also check mmmaster profit (wwworker uses this)
+      if (!actualProfitFound) {
+        const mmmasterAction = actions.find(a => a.action === 'mmmaster_profit');
+        if (mmmasterAction) {
+          const profitAmount = mmmasterAction.data?.profitAmount || 0;
+          const profitToken = mmmasterAction.data?.profitToken || 'XUSDC';
+          const memoPrefix = mmmasterAction.data?.memoPrefix || '';
+
+          // Convert profit to USD
+          const prices: Record<string, number> = {
+            'XPR': 0.00251, 'METAL': 0.118, 'LOAN': 0.0004,
+            'XBTC': 98000, 'XETH': 3200, 'XSOL': 103,
+            'XDOGE': 0.26, 'XMT': 1.10, 'XXRP': 2.45,
+            'XUSDC': 1.0, 'XMD': 1.0,
+          };
+          profitUsd = profitAmount * (prices[profitToken] || 1.0);
+          actualProfitFound = profitUsd > 0;
+
+          // Identify token from memo prefix (wwworker convention)
+          // xxxminer = XMD-based arbs (usually METAL)
+          // yyyminer = XUSDC-based arbs (usually XPR)
+          // zzzminer = mixed, could be XPR or METAL (check AMM swap)
+          if (token === 'UNKNOWN' && memoPrefix) {
+            if (memoPrefix.startsWith('xxx')) {
+              token = 'METAL'; // XMD-based, typically METAL arbs
+            } else if (memoPrefix.startsWith('yyy')) {
+              token = 'XPR'; // XUSDC-based, typically XPR arbs
+            } else if (memoPrefix.startsWith('zzz')) {
+              token = 'XPR/METAL'; // Mixed bot, will refine from AMM swap if possible
+            }
+          }
+        }
+      }
+
+      // Fall back to calculating profit from transaction flows
+      if (!actualProfitFound && actions.length > 0) {
+        // Try all unique transaction IDs until we find profit
+        const uniqueTrxIds = [...new Set(actions.map(a => a.trxId).filter(Boolean))];
+        for (const trxId of uniqueTrxIds) {
+          const calculatedProfit = await this.calculateProfitFromTransaction(trxId, account);
+          if (calculatedProfit !== null && calculatedProfit > 0.001) {
+            profitUsd = calculatedProfit;
+            actualProfitFound = true;
+            break;
+          }
+        }
+      }
+
+      // Last resort: small estimate (but mark as estimated)
+      if (!actualProfitFound) {
+        profitUsd = tradeValueUsd * 0.001; // 0.1% conservative estimate
+      }
+
+      // If we have verified profit but no trade value, estimate trade value from profit
+      // Assume typical 0.2% profit margin: tradeValue = profit / 0.002
+      if (actualProfitFound && tradeValueUsd < 1 && profitUsd > 0) {
+        tradeValueUsd = profitUsd / 0.002; // Estimate trade size from profit
+      }
+
+      // Calculate profit percent
+      profitPercent = tradeValueUsd > 0 ? (profitUsd / tradeValueUsd) * 100 : 0;
+
+      // Skip tiny trades unless we have verified profit
+      if (tradeValueUsd < 1 && !actualProfitFound) return null;
+
+      // Extract token from pool name if still unknown
+      if (token === 'UNKNOWN' && ammPool) {
+        const poolTokenMap: Record<string, string> = {
+          'XPRUSDC': 'XPR',
+          'METAXPR': 'METAL',
+          'METAXMD': 'METAL',
+          'XPRLOAN': 'XPR',
+          'XMTUSDC': 'XMT',
+          'BTCUSDC': 'XBTC',
+          'ETHUSDC': 'XETH',
+          'DOGEUSD': 'XDOGE',
+          'SOLUSDC': 'XSOL',
+          'ADAUSDC': 'XADA',
+        };
+        token = poolTokenMap[ammPool] || token;
+      }
+
+      // Try to extract token from AMM swap memos in the actions
+      // Also refine 'XPR/METAL' from wwworker's zzzminer bot
+      if (token === 'UNKNOWN' || token === 'XPR/METAL') {
+        for (const action of actions) {
+          if (action.action === 'amm_swap') {
+            const memo = action.data?.memo || '';
+            // Memo format: "POOLNAME,1" or "POOL1>POOL2,1"
+            const poolMatch = memo.match(/^([A-Z]+)[>,]/);
+            if (poolMatch) {
+              const pool = poolMatch[1];
+              const poolTokenMap: Record<string, string> = {
+                'XPRUSDC': 'XPR',
+                'METAXPR': 'METAL',
+                'METAXMD': 'METAL',
+                'XPRLOAN': 'LOAN',
+                'XMTUSDC': 'XMT',
+                'BTCUSDC': 'XBTC',
+                'ETHUSDC': 'XETH',
+                'DOGEUSD': 'XDOGE',
+                'SOLUSDC': 'XSOL',
+              };
+              if (poolTokenMap[pool]) {
+                token = poolTokenMap[pool];
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      return {
+        account,
+        type,
+        token,
+        inputAmount: tradeValueUsd,
+        outputAmount: tradeValueUsd + profitUsd,
+        profitUsd,
+        profitPercent,
+        timestamp: actions[0].timestamp,
+        trxIds: actions.map(a => a.trxId),
+        dexPrice,
+        ammPool,
+        tradeValueUsd,
+        verifiedProfit: actualProfitFound  // Track whether profit was verified or estimated
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Calculate actual profit by fetching full transaction and summing net flows
+   * Returns profit in USD (net change in XMD/XUSDC)
+   */
+  private async calculateProfitFromTransaction(trxId: string, account: string): Promise<number | null> {
+    try {
+      const response = await fetch(
+        `https://proton.eosusa.io/v2/history/get_transaction?id=${trxId}`
+      );
+      const data: any = await response.json();
+
+      if (!data.actions) return null;
+
+      // Token prices for conversion
+      const prices: Record<string, number> = {
+        'XUSDC': 1.0, 'XMD': 1.0,
+        'XPR': 0.00251, 'METAL': 0.118, 'LOAN': 0.0004,
+        'XBTC': 98000, 'XETH': 3200, 'XSOL': 103,
+        'XDOGE': 0.26, 'XMT': 1.10, 'XXRP': 2.45,
+      };
+
+      // Track net flows for ALL tokens
+      const netFlows: Record<string, number> = {};
+
+      for (const action of data.actions) {
+        if (action.act?.name !== 'transfer') continue;
+
+        const from = action.act.data?.from;
+        const to = action.act.data?.to;
+        const qty = action.act.data?.quantity || '';
+        const amount = parseFloat(qty) || 0;
+        const symbol = qty.split(' ')[1] || '';
+
+        if (!symbol) continue;
+        if (!netFlows[symbol]) netFlows[symbol] = 0;
+
+        // Track all token flows to/from this account
+        if (to === account) netFlows[symbol] += amount;
+        if (from === account) netFlows[symbol] -= amount;
+      }
+
+      // Check if this is a complete arb cycle (non-stable tokens should net to ~0)
+      // If someone has net gain in XETH, XSOL, etc., it's NOT a complete arb
+      let hasUnbalancedNonStable = false;
+      for (const [symbol, netAmount] of Object.entries(netFlows)) {
+        if (symbol !== 'XMD' && symbol !== 'XUSDC') {
+          // Non-stable token should net to approximately 0 in a complete arb
+          const valueUsd = Math.abs(netAmount) * (prices[symbol] || 0);
+          if (valueUsd > 1.0) { // More than $1 of non-stable = not a complete arb
+            hasUnbalancedNonStable = true;
+            break;
+          }
+        }
+      }
+
+      // Only calculate profit for complete arb cycles
+      if (hasUnbalancedNonStable) {
+        return null; // Not a complete arb, can't calculate profit
+      }
+
+      // Profit is net change in stable tokens (XMD + XUSDC)
+      const profitUsd = (netFlows['XMD'] || 0) + (netFlows['XUSDC'] || 0);
+
+      // Only return if positive and reasonable (< 5% of trade)
+      if (profitUsd > 0.001 && profitUsd < 50) {
+        return profitUsd;
+      }
+
+      return null;
+    } catch (error) {
+      return null;
+    }
+  }
+
   private estimateProfit(actions: TradeAction[]): number {
-    // Try to calculate profit by tracking token flows
-    let usdIn = 0;
-    let usdOut = 0;
+    // For competitor arbs, we can't reliably track profit without full tx analysis
+    // The arb profit is typically very small (0.1-0.5% of trade size)
+    //
+    // Instead of trying to calculate exact profit, estimate based on trade size
+    // Competitors typically make 10-50 BPS on each trade
+
+    let tradeValueUsd = 0;
+
+    // Token prices (approximate)
+    const prices: Record<string, number> = {
+      'XUSDC': 1.0,
+      'XMD': 1.0,
+      'XPR': 0.00248,
+      'METAL': 0.117,
+      'LOAN': 0.0004,
+      'XBTC': 98000,
+      'XETH': 3200,
+      'XSOL': 103,
+      'XDOGE': 0.26,
+      'XMT': 1.10,
+      'XXRP': 2.45,
+    };
 
     for (const action of actions) {
       const qty = action.data?.quantity || '';
@@ -381,32 +1047,29 @@ export class CompetitorTracker {
       const symbol = qty.split(' ')[1] || '';
 
       if (action.action === 'amm_swap') {
-        // Swap input
+        // Track trade size from AMM swaps
+        const price = prices[symbol] || 0;
+        if (price > 0) {
+          tradeValueUsd = Math.max(tradeValueUsd, amount * price);
+        }
+      } else if (action.action === 'dex_exec') {
+        // DEX execution - use the quote amount (XMD) as trade value
+        const quoteAmount = action.data?.quoteAmount || 0;
+        tradeValueUsd = Math.max(tradeValueUsd, quoteAmount);
+      } else if (action.action === 'treasury_mint' || action.action === 'treasury_redeem') {
         if (symbol === 'XUSDC' || symbol === 'XMD') {
-          usdIn += amount;
-        } else if (symbol === 'XPR') {
-          usdIn += amount * 0.0024; // Approximate XPR price
-        } else if (symbol === 'METAL') {
-          usdIn += amount * 0.12; // Approximate METAL price
-        }
-      } else if (action.action === 'treasury_mint') {
-        if (symbol === 'XUSDC') {
-          usdIn += amount;
-        }
-      } else if (action.action === 'treasury_redeem') {
-        if (symbol === 'XMD') {
-          // This is input to treasury, output is XUSDC
-          usdOut += amount; // XMD redeems 1:1 to XUSDC
+          tradeValueUsd = Math.max(tradeValueUsd, amount);
         }
       }
     }
 
-    // If we couldn't calculate, return small positive to trigger alert with "unknown" profit
-    if (usdIn === 0 && usdOut === 0) {
-      return 0.02; // Small amount to trigger alert
+    // Estimate profit as ~20 BPS of trade value (typical arb margin)
+    // This is an estimate - actual profit varies
+    if (tradeValueUsd > 0) {
+      return tradeValueUsd * 0.002; // 0.2% estimated profit
     }
 
-    return usdOut - usdIn;
+    return 0.02; // Default small amount
   }
 
   private async alertArbitrage(arb: DetectedArb): Promise<void> {
@@ -424,22 +1087,48 @@ export class CompetitorTracker {
       }
     }
 
-    const profitStr = arb.profitUsd > 0.1
-      ? `+$${arb.profitUsd.toFixed(2)}`
-      : '(small)';
+    // Show actual profit - verified from actual data
+    const profitStr = arb.profitUsd >= 0.01
+      ? `+$${arb.profitUsd.toFixed(4)}`
+      : `+$${arb.profitUsd.toFixed(6)}`;
 
-    const message = `🔍 *COMPETITOR ARB DETECTED*
+    const tradeSize = arb.tradeValueUsd
+      ? `$${arb.tradeValueUsd.toFixed(2)}`
+      : arb.inputAmount > 0
+        ? `$${arb.inputAmount.toFixed(2)}`
+        : '?';
 
-Account: \`${arb.account}\`
-Type: ${arb.type}
-Token: ${arb.token}
-Profit: ${profitStr} (${arb.profitPercent.toFixed(2)}%)
-Time: ${new Date(arb.timestamp).toLocaleTimeString()}
+    // Build detailed message with proper price formatting
+    let details = '';
+    if (arb.dexPrice && arb.dexPrice > 0) {
+      // Format price based on magnitude
+      const priceStr = arb.dexPrice >= 1
+        ? arb.dexPrice.toFixed(2)
+        : arb.dexPrice >= 0.01
+          ? arb.dexPrice.toFixed(4)
+          : arb.dexPrice.toFixed(6);
+      details += `DEX: ${priceStr} XMD`;
+    }
+    if (arb.ammPool) {
+      details += details ? ` | Pool: ${arb.ammPool}` : `Pool: ${arb.ammPool}`;
+    }
 
-TxIDs: ${arb.trxIds.map(t => t.slice(0, 8)).join(', ')}...`;
+    // Indicate verified profit
+    const verifiedTag = arb.verifiedProfit ? '✓' : '~';
 
-    logger.info(`Competitor arb: ${arb.account} made ${profitStr} on ${arb.type}`);
-    await telegramNotifier.notify(message, 'normal');
+    const message = `🔍 *COMPETITOR ARB*
+
+\`${arb.account}\` | ${arb.type}
+Token: *${arb.token}* | Size: ${tradeSize}
+Profit: ${profitStr} (${arb.profitPercent.toFixed(2)}%) ${verifiedTag}${details ? '\n' + details : ''}
+Time: ${new Date(arb.timestamp).toLocaleTimeString()}`;
+
+    logger.debug(`Competitor arb: ${arb.account} ${arb.token} ${arb.type} ${profitStr} (size: ${tradeSize})`);
+
+    // Only send Telegram for significant competitor profits (>$5) to reduce noise
+    if (arb.profitUsd >= 5.0) {
+      await telegramNotifier.notify(message, 'low');
+    }
 
     // Save to database
     this.saveToDatabase(arb);
@@ -465,7 +1154,7 @@ TxIDs: ${arb.trxIds.map(t => t.slice(0, 8)).join(', ')}...`;
         arb.timestamp
       );
 
-      logger.info(`Saved competitor arb to database: ${arb.account}`);
+      logger.debug(`Saved competitor arb to database: ${arb.account}`);
     } catch (error: any) {
       logger.error(`Failed to save competitor arb to database: ${error.message}`);
     }
@@ -574,9 +1263,9 @@ TxIDs: ${arb.trxIds.map(t => t.slice(0, 8)).join(', ')}...`;
     const now = Date.now();
     const maxAge = 2 * 60 * 1000; // 2 minutes
 
-    for (const [account, pending] of this.pendingArbs.entries()) {
+    for (const [trxId, pending] of this.pendingArbs.entries()) {
       if (now - pending.firstSeen > maxAge) {
-        this.pendingArbs.delete(account);
+        this.pendingArbs.delete(trxId);
       }
     }
   }

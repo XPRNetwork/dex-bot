@@ -120,6 +120,62 @@
     "monitoring": {
       "healthCheckIntervalMS": 30000,
       "metricsEnabled": true
+    },
+    "xmdTreasury": {
+      "enabled": false,
+      "autoConvert": false,
+      "preferredCollateral": "XUSDC",
+      "minConvertAmount": 10,
+      "reservePercent": 10
+    },
+    "telegram": {
+      "enabled": false,
+      "botToken": "",
+      "chatId": "",
+      "alertOn": {
+        "tradeExecuted": true,
+        "orderPlaced": false,
+        "orderCancelled": false,
+        "profitThresholdUSD": 10,
+        "circuitBreakerTriggered": true,
+        "riskWarning": true,
+        "dailySummary": true,
+        "errorAlert": true
+      },
+      "maxMessagesPerMinute": 20
+    },
+    "crossVenueArbitrage": {
+      "enabled": false,
+      "pairs": [
+        {
+          "baseToken": "XPR",
+          "baseContract": "eosio.token",
+          "basePrecision": 4,
+          "ammPoolSymbol": "XPRUSDC",
+          "dexMarketSymbol": "XPR_XMD",
+          "dexMarketId": 3,
+          "enabled": true,
+          "minTradeSize": 100,
+          "maxTradeSize": 50000
+        },
+        {
+          "baseToken": "XMT",
+          "baseContract": "xtokens",
+          "basePrecision": 8,
+          "ammPoolSymbol": "XMTUSDC",
+          "dexMarketSymbol": "XMT_XMD",
+          "dexMarketId": 8,
+          "enabled": true,
+          "minTradeSize": 10,
+          "maxTradeSize": 5000
+        }
+      ],
+      "minProfitBPS": 20,
+      "maxTradeUSD": 1000,
+      "checkIntervalMS": 5000,
+      "dryRun": true,
+      "maxSlippageBPS": 50,
+      "cooldownMS": 30000
     }
   }
 }

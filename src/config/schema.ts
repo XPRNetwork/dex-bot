@@ -123,7 +123,7 @@ export const ClaudeAdaptiveMMConfigSchema = z.object({
  * Strategy configuration schema
  */
 export const StrategyConfigSchema = z.object({
-  name: z.enum(['gridBot', 'marketMaker', 'amm-dex-arbitrage', 'claude-adaptive-mm']),
+  name: z.enum(['gridBot', 'marketMaker', 'amm-dex-arbitrage', 'claude-adaptive-mm', 'cross-venue-arbitrage']),
   enabled: z.boolean().default(true),
   weight: z.number().min(0).max(1).optional()
 });
@@ -147,6 +147,118 @@ export const MonitoringConfigSchema = z.object({
 });
 
 /**
+ * XMD Treasury configuration schema
+ */
+export const XMDTreasuryConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  // Auto-convert XUSDC to XMD when needed for XMD-quoted markets
+  autoConvert: z.boolean().default(false),
+  // Preferred collateral for minting XMD (XUSDC, XPAX, XPYUSD)
+  preferredCollateral: z.enum(['XUSDC', 'XPAX', 'XPYUSD']).default('XUSDC'),
+  // Minimum amount to convert at once (to reduce transaction overhead)
+  minConvertAmount: z.number().positive().default(10),
+  // Keep this much collateral reserve (don't convert everything)
+  reservePercent: z.number().min(0).max(100).default(10)
+});
+
+/**
+ * Cross-venue arbitrage pair schema
+ */
+export const CrossVenueArbitragePairSchema = z.object({
+  baseToken: z.string(),
+  baseContract: z.string(),
+  basePrecision: z.number(),
+  ammPoolSymbol: z.string(),
+  dexMarketSymbol: z.string(),
+  dexMarketId: z.number(),
+  enabled: z.boolean().default(true),
+  minTradeSize: z.number().positive().default(100),
+  maxTradeSize: z.number().positive().default(100000)
+});
+
+/**
+ * Cross-venue arbitrage configuration schema
+ */
+export const CrossVenueArbitrageConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  pairs: z.array(CrossVenueArbitragePairSchema).default([]),
+  minProfitBPS: z.number().nonnegative().default(20),
+  maxTradeUSD: z.number().positive().default(1000),
+  checkIntervalMS: z.number().positive().default(5000),
+  dryRun: z.boolean().default(true),
+  maxSlippageBPS: z.number().nonnegative().default(50),
+  cooldownMS: z.number().nonnegative().default(30000)
+});
+
+/**
+ * Telegram notification configuration schema
+ */
+export const TelegramConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  botToken: z.string().optional(),
+  chatId: z.string().optional(),
+  alertOn: z.object({
+    tradeExecuted: z.boolean().default(true),
+    orderPlaced: z.boolean().default(false),
+    orderCancelled: z.boolean().default(false),
+    profitThresholdUSD: z.number().default(10),
+    circuitBreakerTriggered: z.boolean().default(true),
+    riskWarning: z.boolean().default(true),
+    dailySummary: z.boolean().default(true),
+    errorAlert: z.boolean().default(true)
+  }).optional(),
+  maxMessagesPerMinute: z.number().default(20),
+  quietHoursStart: z.number().min(0).max(23).optional(),
+  quietHoursEnd: z.number().min(0).max(23).optional()
+});
+
+/**
+ * SimpleDEX arbitrage configuration schema
+ */
+export const SimpleDexArbitrageSchema = z.object({
+  enabled: z.boolean().default(false),
+  checkIntervalMs: z.number().positive().default(2000),
+  minProfitBps: z.number().nonnegative().default(15),
+  maxTradeUsd: z.number().positive().default(25),
+  dryRun: z.boolean().default(true),
+  enabledRoutes: z.array(z.string()).default([
+    'LOAN_TRIANGLE', 'LOAN_TRIANGLE_REV',
+    'LOAN_DIRECT', 'LOAN_DIRECT_REV',
+    'SNIPS_CROSS', 'SNIPS_CROSS_REV'
+  ])
+});
+
+/**
+ * Launch Sniper sell target schema
+ */
+export const LaunchSniperSellTargetSchema = z.object({
+  percentToSell: z.number().min(1).max(100),
+  priceMultiple: z.number().positive(),
+});
+
+/**
+ * Launch Sniper configuration schema
+ */
+export const LaunchSniperSchema = z.object({
+  enabled: z.boolean().default(false),
+  buyAmountXPR: z.number().positive().default(1000),
+  buyDelaySeconds: z.number().nonnegative().default(60),
+  checkIntervalMs: z.number().positive().default(5000),
+  maxEntryXpr: z.number().positive().default(5000),
+  maxConcurrentPositions: z.number().positive().default(10),
+  sellTargets: z.array(LaunchSniperSellTargetSchema).default([
+    { percentToSell: 50, priceMultiple: 2.0 },
+    { percentToSell: 100, priceMultiple: 3.0 },
+  ]),
+  stopLoss: z.object({
+    enabled: z.boolean().default(false),
+    priceMultiple: z.number().positive().default(0.5),
+  }).default({ enabled: false, priceMultiple: 0.5 }),
+  dryRun: z.boolean().default(true),
+  indexerUrl: z.string().default('https://indexer.protonnz.com'),
+});
+
+/**
  * Complete bot configuration schema
  */
 export const BotConfigSchema = z.object({
@@ -157,7 +269,7 @@ export const BotConfigSchema = z.object({
   channelId: z.string().optional().default(''),
   cancelOpenOrdersOnExit: z.boolean().default(true),
   gridPlacement: z.boolean().default(true),
-  strategy: z.enum(['gridBot', 'marketMaker', 'amm-dex-arbitrage', 'claude-adaptive-mm']).default('gridBot'),
+  strategy: z.enum(['gridBot', 'marketMaker', 'amm-dex-arbitrage', 'claude-adaptive-mm', 'cross-venue-arbitrage']).default('gridBot'),
   username: z.string(),
 
   // Existing strategy configs
@@ -178,6 +290,11 @@ export const BotConfigSchema = z.object({
   arbitrage: ArbitrageConfigSchema.optional(),
   claudeAdaptiveMM: ClaudeAdaptiveMMConfigSchema.optional(),
   monitoring: MonitoringConfigSchema.optional(),
+  xmdTreasury: XMDTreasuryConfigSchema.optional(),
+  telegram: TelegramConfigSchema.optional(),
+  crossVenueArbitrage: CrossVenueArbitrageConfigSchema.optional(),
+  simpleDexArbitrage: SimpleDexArbitrageSchema.optional(),
+  launchSniper: LaunchSniperSchema.optional(),
 
   // Multi-strategy support
   strategies: z.array(StrategyConfigSchema).optional()
@@ -196,6 +313,12 @@ export type ArbitrageConfig = z.infer<typeof ArbitrageConfigSchema>;
 export type ClaudeAdaptiveMMConfig = z.infer<typeof ClaudeAdaptiveMMConfigSchema>;
 export type StrategyConfig = z.infer<typeof StrategyConfigSchema>;
 export type MonitoringConfig = z.infer<typeof MonitoringConfigSchema>;
+export type XMDTreasuryConfig = z.infer<typeof XMDTreasuryConfigSchema>;
+export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
+export type CrossVenueArbitragePair = z.infer<typeof CrossVenueArbitragePairSchema>;
+export type CrossVenueArbitrageConfig = z.infer<typeof CrossVenueArbitrageConfigSchema>;
+export type SimpleDexArbitrageConfig = z.infer<typeof SimpleDexArbitrageSchema>;
+export type LaunchSniperConfig = z.infer<typeof LaunchSniperSchema>;
 export type BotConfig = z.infer<typeof BotConfigSchema>;
 
 /**

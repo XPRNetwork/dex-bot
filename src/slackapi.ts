@@ -13,7 +13,7 @@ export const postSlackMsg = async (): Promise<void> => {
   const slackBotToken = config.slackBotToken;
 
   if(!channelId || !slackBotToken) {
-    logger.info(' Slack bot configuration is missing, so not sharing details(balance, open-orders) to slack channel');
+    logger.debug('Slack bot configuration is missing');
     return;
   }
 

@@ -60,13 +60,16 @@ import { xmdTreasury } from './xmd/treasury.js';
 import { telegramNotifier } from './notifications/telegram.js';
 import { marketScanner } from './ai/market-scanner.js';
 import { profitabilityTracker } from './analytics/profitability-tracker.js';
-import { createTriangleArbitrage } from './strategies/atomic-triangle.js';
-import type { TriangleArbitrage } from './strategies/triangle-arbitrage.js';
+import { TriangleArbitrage } from './strategies/triangle-arbitrage.js';
 import { multiHopArbitrage } from './strategies/multi-hop-arbitrage.js';
 import { competitorTracker } from './monitoring/competitor-tracker.js';
+import { SimpleDexArbitrage } from './strategies/simpledex-arbitrage.js';
+import { LaunchSniper } from './strategies/launch-sniper.js';
 
 // Create triangle arbitrage instance (atomic or standard based on config)
 let triangleArbitrage: TriangleArbitrage;
+let simpleDexArbitrage: SimpleDexArbitrage;
+let launchSniper: LaunchSniper;
 import { JsonRpc } from '@proton/js';
 
 const logger = getLogger();
@@ -178,6 +181,7 @@ async function initializeInfrastructure(): Promise<void> {
     const telegramConfig = (config as any).telegram;
     if (telegramConfig?.enabled) {
       telegramNotifier.initialize(telegramConfig);
+      telegramNotifier.startCallbackPolling();
       logger.info('Telegram notifications initialized');
     }
   } catch (error) {
@@ -203,8 +207,8 @@ async function initializeInfrastructure(): Promise<void> {
   try {
     const triangleConfig = (config as any).triangleArbitrage;
     if (triangleConfig?.enabled) {
-      // Create the appropriate instance (atomic or standard)
-      triangleArbitrage = createTriangleArbitrage();
+      // Create triangle arbitrage instance (atomic execution enabled via config)
+      triangleArbitrage = new TriangleArbitrage();
       await triangleArbitrage.start();
       logger.info('Triangle Arbitrage initialized');
     }
@@ -229,6 +233,30 @@ async function initializeInfrastructure(): Promise<void> {
     logger.info('Competitor Tracker initialized - monitoring other arb bots');
   } catch (error) {
     logger.warn('Failed to initialize Competitor Tracker:', error);
+  }
+
+  // 7d. Initialize SimpleDEX Arbitrage (cross-venue atomic arb)
+  try {
+    const simpleDexConfig = (config as any).simpleDexArbitrage;
+    if (simpleDexConfig?.enabled) {
+      simpleDexArbitrage = new SimpleDexArbitrage();
+      await simpleDexArbitrage.start();
+      logger.info('SimpleDEX Arbitrage initialized (DRY RUN: ' + simpleDexConfig.dryRun + ')');
+    }
+  } catch (error) {
+    logger.warn('Failed to initialize SimpleDEX Arbitrage:', error);
+  }
+
+  // 7e. Initialize Launch Sniper (auto-buy new simplelaunch tokens)
+  try {
+    const sniperConfig = (config as any).launchSniper;
+    if (sniperConfig?.enabled) {
+      launchSniper = new LaunchSniper();
+      await launchSniper.start();
+      logger.info('Launch Sniper initialized');
+    }
+  } catch (error) {
+    logger.warn('Failed to initialize Launch Sniper:', error);
   }
 
   // 8. Initialize DEX API
@@ -364,7 +392,7 @@ async function executeAnalyticsCycle(): Promise<void> {
 async function tradeLoop(): Promise<void> {
   if (isShuttingDown) return;
 
-  logger.info('Trade cycle executing...');
+  logger.debug('Trade cycle executing...');
 
   try {
     await executeTradeCycle();
@@ -572,6 +600,13 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   logger.info(`Received ${signal}, initiating graceful shutdown...`);
 
+  // Stop Telegram callback polling
+  try {
+    telegramNotifier.stopCallbackPolling();
+  } catch (e) {
+    // Ignore
+  }
+
   // Stop market scanner
   try {
     marketScanner.stopScanning();
@@ -583,6 +618,24 @@ async function gracefulShutdown(signal: string): Promise<void> {
   try {
     if (triangleArbitrage) {
       triangleArbitrage.stop();
+    }
+  } catch (e) {
+    // Ignore
+  }
+
+  // Stop SimpleDEX arbitrage
+  try {
+    if (simpleDexArbitrage) {
+      simpleDexArbitrage.stop();
+    }
+  } catch (e) {
+    // Ignore
+  }
+
+  // Stop Launch Sniper
+  try {
+    if (launchSniper) {
+      launchSniper.stop();
     }
   } catch (e) {
     // Ignore

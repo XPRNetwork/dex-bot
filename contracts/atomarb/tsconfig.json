@@ -1,0 +1,4 @@
+{
+  "extends": "proton-tsc/asconfig.json",
+  "include": ["./assembly/**/*.ts"]
+}

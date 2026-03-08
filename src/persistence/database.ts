@@ -86,6 +86,9 @@ function runMigrations(database: Database.Database): void {
     { name: '004_risk_tables', sql: migration004RiskTables },
     { name: '005_multihop_balance_tables', sql: migration005MultiHopBalanceTables },
     { name: '006_competitor_tables', sql: migration006CompetitorTables },
+    { name: '007_launch_sniper_positions', sql: migration007LaunchSniperPositions },
+    { name: '008_launch_sniper_original_tokens', sql: migration008LaunchSniperOriginalTokens },
+    { name: '009_launch_sniper_momentum_exit', sql: migration009LaunchSniperMomentumExit },
   ];
 
   const appliedMigrations = database
@@ -386,6 +389,41 @@ const migration006CompetitorTables = `
 
   CREATE INDEX IF NOT EXISTS idx_competitor_stats_account ON competitor_stats(account);
   CREATE INDEX IF NOT EXISTS idx_competitor_stats_period ON competitor_stats(period);
+`;
+
+// Migration 007: Launch sniper position persistence
+const migration007LaunchSniperPositions = `
+  -- Launch sniper tracked positions (survives restarts)
+  CREATE TABLE IF NOT EXISTS launch_sniper_positions (
+    curve_id INTEGER PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    precision_val INTEGER NOT NULL DEFAULT 4,
+    creator TEXT NOT NULL DEFAULT '',
+    detected_at INTEGER NOT NULL,
+    buy_executed_at INTEGER NOT NULL DEFAULT 0,
+    entry_price_xpr_per_token REAL NOT NULL DEFAULT 0,
+    tokens_held TEXT NOT NULL DEFAULT '0',
+    token_contract TEXT NOT NULL DEFAULT 'simpletoken',
+    sell_targets_hit TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'waiting',
+    total_xpr_spent REAL NOT NULL DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+// Migration 008: Add original_tokens_bought to launch sniper positions
+const migration008LaunchSniperOriginalTokens = `
+  ALTER TABLE launch_sniper_positions ADD COLUMN original_tokens_bought TEXT NOT NULL DEFAULT '0';
+
+  -- Backfill: for existing rows, set original_tokens_bought = tokens_held
+  -- (best estimate for positions that haven't sold yet)
+  UPDATE launch_sniper_positions SET original_tokens_bought = tokens_held
+    WHERE original_tokens_bought = '0' AND tokens_held != '0';
+`;
+
+// Migration 009: Add momentum_exit_done to launch sniper positions
+const migration009LaunchSniperMomentumExit = `
+  ALTER TABLE launch_sniper_positions ADD COLUMN momentum_exit_done INTEGER NOT NULL DEFAULT 0;
 `;
 
 // Utility function to get current date in YYYY-MM-DD format

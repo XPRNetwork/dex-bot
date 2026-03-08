@@ -10,9 +10,15 @@
     "rpc": {
       "privateKeyPermission": "active",
       "endpoints": [
-        "https://rpc.api.mainnet.metalx.com",
+        "https://api.protonnz.com",
+        "https://proton.greymass.com",
+        "https://api-xpr-main.danemarkbp.com",
+        "https://proton.eoscafeblock.com",
         "https://proton.eosusa.io",
-        "https://proton.greymass.com"
+        "https://rpc.api.mainnet.metalx.com",
+        "https://api.snipverse.io",
+        "https://proton.cryptolions.io",
+        "https://proton.genereos.io"
       ],
       "apiRoot": "https://dex.api.mainnet.metalx.com/dex",
       "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
@@ -70,16 +76,16 @@
       "cooldownMS": 120000
     },
     "atomicArbitrage": {
-      "enabled": false,
+      "enabled": true,
       "contractAccount": "atomarb",
       "minProfitBps": 15,
       "maxTradeUsd": 200,
       "dryRun": false,
-      "preferAtomic": false,
+      "preferAtomic": true,
       "forceAtomic": false
     },
     "triangleArbitrage": {
-      "enabled": true,
+      "enabled": false,
       "checkIntervalMs": 1000,
       "minProfitBPS": 15,
       "maxTradeUSD": 200,
@@ -200,10 +206,44 @@
         },
         {
           "name": "METAL_DIRECT",
-          "enabled": true,
+          "enabled": false,
           "description": "METAXMD AMM vs METAL_XMD DEX (simple 2-venue arb)"
         }
       ]
+    },
+    "simpleDexArbitrage": {
+      "enabled": true,
+      "checkIntervalMs": 2000,
+      "minProfitBps": 15,
+      "minProfitUsd": 0.005,
+      "maxTradeUsd": 25,
+      "dryRun": false,
+      "enabledRoutes": ["LOAN_TRIANGLE", "LOAN_TRIANGLE_REV", "LOAN_DIRECT", "LOAN_DIRECT_REV", "SNIPS_CROSS", "SNIPS_CROSS_REV", "SDEX_METALX", "METALX_SDEX"]
+    },
+    "launchSniper": {
+      "enabled": true,
+      "buyAmountXPR": 4444,
+      "buyDelaySeconds": 0,
+      "checkIntervalMs": 2000,
+      "maxEntryXpr": 5000,
+      "maxConcurrentPositions": 10,
+      "sellTargets": [
+        { "percentToSell": 40, "priceMultiple": 2.5 },
+        { "percentToSell": 15, "priceMultiple": 5.0 }
+      ],
+      "momentumExit": {
+        "enabled": true,
+        "minPriceMultiple": 2.2,
+        "maxAgeSeconds": 1800,
+        "percentToSell": 40,
+        "minHoldSeconds": 30
+      },
+      "stopLoss": {
+        "enabled": false,
+        "priceMultiple": 0.5
+      },
+      "dryRun": false,
+      "indexerUrl": "https://indexer.protonnz.com"
     },
     "tracking": {
       "startingPortfolioUSD": 1000

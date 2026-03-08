@@ -1,0 +1,15 @@
+{
+  "name": "atomarb",
+  "version": "1.0.0",
+  "description": "Atomic arbitrage smart contract for XPR Network",
+  "scripts": {
+    "build": "npx proton-asc ./assembly/atomarb.contract.ts",
+    "clean": "rm -rf assembly/target",
+    "rebuild": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "proton-tsc": "^0.3.58"
+  },
+  "author": "",
+  "license": "MIT"
+}

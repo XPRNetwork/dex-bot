@@ -1,0 +1,893 @@
+{
+  "version": "eosio::abi/1.2",
+  "structs": [
+    {
+      "name": "AmmPool",
+      "base": "",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uint64"
+        },
+        {
+          "name": "pool_symbol",
+          "type": "string"
+        },
+        {
+          "name": "base_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "quote_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "fee_bps",
+          "type": "uint64"
+        },
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "ArbState",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "starting_balance",
+          "type": "uint64"
+        },
+        {
+          "name": "min_profit",
+          "type": "uint64"
+        },
+        {
+          "name": "route",
+          "type": "uint8"
+        },
+        {
+          "name": "base_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "quote_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "intermediate_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "started_at",
+          "type": "uint64"
+        }
+      ]
+    },
+    {
+      "name": "AuthorizedUser",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "added_at",
+          "type": "uint64"
+        }
+      ]
+    },
+    {
+      "name": "Config",
+      "base": "",
+      "fields": [
+        {
+          "name": "owner",
+          "type": "name"
+        },
+        {
+          "name": "paused",
+          "type": "bool"
+        },
+        {
+          "name": "min_profit_bps",
+          "type": "uint64"
+        },
+        {
+          "name": "max_trade_usd",
+          "type": "uint64"
+        },
+        {
+          "name": "total_trades",
+          "type": "uint64"
+        },
+        {
+          "name": "total_profit",
+          "type": "uint64"
+        }
+      ]
+    },
+    {
+      "name": "DexMarket",
+      "base": "",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uint64"
+        },
+        {
+          "name": "market_id",
+          "type": "uint64"
+        },
+        {
+          "name": "market_symbol",
+          "type": "string"
+        },
+        {
+          "name": "base_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "quote_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "maker_fee_bps",
+          "type": "uint64"
+        },
+        {
+          "name": "taker_fee_bps",
+          "type": "uint64"
+        },
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "LegBalance",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "symbol_code",
+          "type": "uint64"
+        },
+        {
+          "name": "balance",
+          "type": "uint64"
+        },
+        {
+          "name": "leg",
+          "type": "uint8"
+        }
+      ]
+    },
+    {
+      "name": "TokenMap",
+      "base": "",
+      "fields": [
+        {
+          "name": "symbol_code",
+          "type": "uint64"
+        },
+        {
+          "name": "contract",
+          "type": "name"
+        },
+        {
+          "name": "precision",
+          "type": "uint8"
+        }
+      ]
+    },
+    {
+      "name": "TradeRecord",
+      "base": "",
+      "fields": [
+        {
+          "name": "id",
+          "type": "uint64"
+        },
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "route",
+          "type": "uint8"
+        },
+        {
+          "name": "base_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "quote_symbol",
+          "type": "uint64"
+        },
+        {
+          "name": "input_amount",
+          "type": "uint64"
+        },
+        {
+          "name": "output_amount",
+          "type": "uint64"
+        },
+        {
+          "name": "profit",
+          "type": "int64"
+        },
+        {
+          "name": "timestamp",
+          "type": "uint64"
+        }
+      ]
+    },
+    {
+      "name": "addammpool",
+      "base": "",
+      "fields": [
+        {
+          "name": "pool_symbol",
+          "type": "string"
+        },
+        {
+          "name": "base_symbol",
+          "type": "string"
+        },
+        {
+          "name": "base_precision",
+          "type": "uint8"
+        },
+        {
+          "name": "quote_symbol",
+          "type": "string"
+        },
+        {
+          "name": "quote_precision",
+          "type": "uint8"
+        },
+        {
+          "name": "fee_bps",
+          "type": "uint64"
+        }
+      ]
+    },
+    {
+      "name": "addauth",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        }
+      ]
+    },
+    {
+      "name": "adddexmkt",
+      "base": "",
+      "fields": [
+        {
+          "name": "market_id",
+          "type": "uint64"
+        },
+        {
+          "name": "market_symbol",
+          "type": "string"
+        },
+        {
+          "name": "base_symbol",
+          "type": "string"
+        },
+        {
+          "name": "base_precision",
+          "type": "uint8"
+        },
+        {
+          "name": "quote_symbol",
+          "type": "string"
+        },
+        {
+          "name": "quote_precision",
+          "type": "uint8"
+        },
+        {
+          "name": "maker_fee_bps",
+          "type": "uint64"
+        },
+        {
+          "name": "taker_fee_bps",
+          "type": "uint64"
+        }
+      ]
+    },
+    {
+      "name": "addtoken",
+      "base": "",
+      "fields": [
+        {
+          "name": "symbol_str",
+          "type": "string"
+        },
+        {
+          "name": "contract",
+          "type": "name"
+        },
+        {
+          "name": "precision",
+          "type": "uint8"
+        }
+      ]
+    },
+    {
+      "name": "ammtodex",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "amount",
+          "type": "asset"
+        },
+        {
+          "name": "min_profit_bps",
+          "type": "uint64"
+        },
+        {
+          "name": "min_xpr_out",
+          "type": "asset"
+        }
+      ]
+    },
+    {
+      "name": "arblegadd",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "sell_contract",
+          "type": "name"
+        },
+        {
+          "name": "quantity",
+          "type": "asset"
+        },
+        {
+          "name": "sell_to",
+          "type": "name"
+        },
+        {
+          "name": "sell_memo",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "arblegone",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "buy_contract",
+          "type": "name"
+        },
+        {
+          "name": "buy_from",
+          "type": "name"
+        },
+        {
+          "name": "buy_memo",
+          "type": "string"
+        },
+        {
+          "name": "quantity",
+          "type": "asset"
+        },
+        {
+          "name": "sell_contract",
+          "type": "name"
+        }
+      ]
+    },
+    {
+      "name": "arblegtwo",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "sell_contract",
+          "type": "name"
+        },
+        {
+          "name": "sell_sym",
+          "type": "string"
+        },
+        {
+          "name": "sell_precision",
+          "type": "uint8"
+        },
+        {
+          "name": "sell_to",
+          "type": "name"
+        },
+        {
+          "name": "sell_memo",
+          "type": "string"
+        },
+        {
+          "name": "quantity",
+          "type": "asset"
+        }
+      ]
+    },
+    {
+      "name": "cancel",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        }
+      ]
+    },
+    {
+      "name": "checkbalext",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "token_contract",
+          "type": "name"
+        },
+        {
+          "name": "symbol_str",
+          "type": "string"
+        },
+        {
+          "name": "precision",
+          "type": "uint8"
+        },
+        {
+          "name": "message",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "checkstate",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        }
+      ]
+    },
+    {
+      "name": "clear",
+      "base": "",
+      "fields": []
+    },
+    {
+      "name": "dexdeposit",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "token_contract",
+          "type": "name"
+        },
+        {
+          "name": "amount",
+          "type": "asset"
+        }
+      ]
+    },
+    {
+      "name": "dexorder",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "market_id",
+          "type": "uint64"
+        },
+        {
+          "name": "order_side",
+          "type": "uint8"
+        },
+        {
+          "name": "order_type",
+          "type": "uint8"
+        },
+        {
+          "name": "quantity",
+          "type": "uint64"
+        },
+        {
+          "name": "price",
+          "type": "uint64"
+        },
+        {
+          "name": "bid_symbol_str",
+          "type": "string"
+        },
+        {
+          "name": "bid_precision",
+          "type": "uint8"
+        },
+        {
+          "name": "ask_symbol_str",
+          "type": "string"
+        },
+        {
+          "name": "ask_precision",
+          "type": "uint8"
+        }
+      ]
+    },
+    {
+      "name": "dextoamm",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "amount",
+          "type": "asset"
+        },
+        {
+          "name": "min_profit_bps",
+          "type": "uint64"
+        }
+      ]
+    },
+    {
+      "name": "dexwithdraw",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "amount",
+          "type": "asset"
+        }
+      ]
+    },
+    {
+      "name": "init",
+      "base": "",
+      "fields": [
+        {
+          "name": "owner",
+          "type": "name"
+        }
+      ]
+    },
+    {
+      "name": "redeemxmd",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "xmd_amount",
+          "type": "asset"
+        }
+      ]
+    },
+    {
+      "name": "reset",
+      "base": "",
+      "fields": []
+    },
+    {
+      "name": "rmauth",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        }
+      ]
+    },
+    {
+      "name": "savebalance",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "token_contract",
+          "type": "name"
+        },
+        {
+          "name": "symbol_str",
+          "type": "string"
+        },
+        {
+          "name": "precision",
+          "type": "uint8"
+        },
+        {
+          "name": "min_profit",
+          "type": "asset"
+        }
+      ]
+    },
+    {
+      "name": "setconfig",
+      "base": "",
+      "fields": [
+        {
+          "name": "min_profit_bps",
+          "type": "uint64"
+        },
+        {
+          "name": "max_trade_usd",
+          "type": "uint64"
+        },
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "swapxpr",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "xpr_amount",
+          "type": "asset"
+        },
+        {
+          "name": "min_xusdc_out",
+          "type": "asset"
+        }
+      ]
+    },
+    {
+      "name": "verify",
+      "base": "",
+      "fields": [
+        {
+          "name": "user",
+          "type": "name"
+        },
+        {
+          "name": "final_balance",
+          "type": "uint64"
+        }
+      ]
+    }
+  ],
+  "types": [],
+  "actions": [
+    {
+      "name": "addammpool",
+      "type": "addammpool",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "addauth",
+      "type": "addauth",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "adddexmkt",
+      "type": "adddexmkt",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "addtoken",
+      "type": "addtoken",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "ammtodex",
+      "type": "ammtodex",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "arblegadd",
+      "type": "arblegadd",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "arblegone",
+      "type": "arblegone",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "arblegtwo",
+      "type": "arblegtwo",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "cancel",
+      "type": "cancel",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "checkbalext",
+      "type": "checkbalext",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "checkstate",
+      "type": "checkstate",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "clear",
+      "type": "clear",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "dexdeposit",
+      "type": "dexdeposit",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "dexorder",
+      "type": "dexorder",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "dextoamm",
+      "type": "dextoamm",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "dexwithdraw",
+      "type": "dexwithdraw",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "init",
+      "type": "init",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "redeemxmd",
+      "type": "redeemxmd",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "reset",
+      "type": "reset",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "rmauth",
+      "type": "rmauth",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "savebalance",
+      "type": "savebalance",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "setconfig",
+      "type": "setconfig",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "swapxpr",
+      "type": "swapxpr",
+      "ricardian_contract": ""
+    },
+    {
+      "name": "verify",
+      "type": "verify",
+      "ricardian_contract": ""
+    }
+  ],
+  "tables": [
+    {
+      "name": "ammpool",
+      "type": "AmmPool",
+      "index_type": "i64",
+      "key_names": [],
+      "key_types": []
+    },
+    {
+      "name": "arbstate",
+      "type": "ArbState",
+      "index_type": "i64",
+      "key_names": [],
+      "key_types": []
+    },
+    {
+      "name": "authorized",
+      "type": "AuthorizedUser",
+      "index_type": "i64",
+      "key_names": [],
+      "key_types": []
+    },
+    {
+      "name": "config",
+      "type": "Config",
+      "index_type": "i64",
+      "key_names": [],
+      "key_types": []
+    },
+    {
+      "name": "dexmarket",
+      "type": "DexMarket",
+      "index_type": "i64",
+      "key_names": [],
+      "key_types": []
+    },
+    {
+      "name": "legbalance",
+      "type": "LegBalance",
+      "index_type": "i64",
+      "key_names": [],
+      "key_types": []
+    },
+    {
+      "name": "tokenmap",
+      "type": "TokenMap",
+      "index_type": "i64",
+      "key_names": [],
+      "key_types": []
+    },
+    {
+      "name": "trades",
+      "type": "TradeRecord",
+      "index_type": "i64",
+      "key_names": [],
+      "key_types": []
+    }
+  ],
+  "ricardian_clauses": [],
+  "variants": [],
+  "action_results": [],
+  "abi_extensions": [],
+  "error_messages": []
+}

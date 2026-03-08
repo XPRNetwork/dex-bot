@@ -1135,35 +1135,13 @@ export class MultiHopArbitrage {
       return;
     }
 
-    // Pre-flight: Re-fetch FRESH prices and re-calculate profitability
-    // (same pattern as executeMetalDirect)
-    await this.fetchDexMarket('LOAN_XMD');
-    await this.fetchPoolStates();
-
-    const freshXprusdc = this.poolStates.get('XPRUSDC')!;
-    const freshXprloan = this.poolStates.get('XPRLOAN')!;
-    const freshLoanXmd = this.dexMarkets.get('LOAN_XMD')!;
-
-    const freshPath = await this.checkLoanPath();
-    if (!freshPath || freshPath.profitBps < this.config.minProfitBps) {
-      const currentProfit = freshPath ? freshPath.profitBps.toFixed(1) : 'N/A';
-      logger.warn(`❌ LOAN_BRIDGE ABORTED: Price moved. Fresh profit: ${currentProfit} BPS < required ${this.config.minProfitBps} BPS`);
-      await telegramNotifier.notify(
-        `❌ LOAN BRIDGE aborted: Price moved. Fresh profit ${currentProfit} BPS (need ${this.config.minProfitBps})`,
-        'normal'
-      );
-      throw new Error(`Price moved: profit dropped to ${currentProfit} BPS`);
-    }
-
-    if (freshPath.name !== path.name) {
-      logger.warn(`❌ LOAN_BRIDGE ABORTED: Path direction flipped to ${freshPath.name}`);
-      throw new Error(`Path direction flipped to ${freshPath.name}`);
-    }
-
-    logger.info(`✅ Pre-flight check passed: LOAN_BRIDGE still profitable at ${freshPath.profitBps.toFixed(1)} BPS`);
+    // Skip pre-flight re-fetch — scan data is <2s old, and the re-fetch adds ~1s latency
+    // that lets faster bots (jamestaggart/noloss) take the opportunity before us.
+    // The scan already verified profitability with fresh data.
+    logger.info(`Executing LOAN_BRIDGE at ${path.profitBps.toFixed(1)} BPS (scan data)`);
 
     // Forward path: Sell LOAN on DEX
-    const startXpr = path.tradeSizeUsd / freshXprusdc.price;
+    const startXpr = path.tradeSizeUsd / xprusdc.price;
 
     // Get LOAN balance BEFORE swap to track exactly what we receive
     const loanBalBeforeRes = await this.rpc.get_table_rows({
@@ -1183,7 +1161,7 @@ export class MultiHopArbitrage {
 
     // Step 1: XPR → LOAN via XPRLOAN AMM
     // XPRLOAN pool: pool1=XPR, pool2=LOAN
-    const expectedLoan = this.calculateAmmOutput(startXpr, freshXprloan, true); // true = forward direction (XPR→LOAN)
+    const expectedLoan = this.calculateAmmOutput(startXpr, xprloan, true); // true = forward direction (XPR→LOAN)
     const minLoan = expectedLoan * 0.99;
 
     logger.info(`Step 1: Swap ${startXpr.toFixed(4)} XPR → ~${expectedLoan.toFixed(4)} LOAN`);
@@ -1258,9 +1236,9 @@ export class MultiHopArbitrage {
     const loanRaw = Math.floor(loanToSell * 1e4); // LOAN has 4 decimals
 
     // Use profit-linked slippage tolerance instead of hardcoded 2%
-    const sellLimitPrice = this.calculateSellLimitPrice(freshLoanXmd.bestBid, path.profitBps);
+    const sellLimitPrice = this.calculateSellLimitPrice(loanXmd.bestBid, path.profitBps);
     const priceRaw = Math.floor(sellLimitPrice * 1e6);
-    const slippageBps = ((freshLoanXmd.bestBid - sellLimitPrice) / freshLoanXmd.bestBid) * 10000;
+    const slippageBps = ((loanXmd.bestBid - sellLimitPrice) / loanXmd.bestBid) * 10000;
 
     logger.info(`Step 2: Sell ${loanToSell.toFixed(4)} LOAN on DEX @ ${sellLimitPrice.toFixed(6)} (${slippageBps.toFixed(0)} BPS below bid)`);
 
@@ -1281,7 +1259,7 @@ export class MultiHopArbitrage {
         name: 'placeorder',
         authorization: [{ actor: this.username, permission: 'active' }],
         data: {
-          market_id: freshLoanXmd.marketId,
+          market_id: loanXmd.marketId,
           account: this.username,
           order_type: 1,
           order_side: 2, // Sell

@@ -36,3 +36,9 @@ export {
   type AMMPoolSnapshot,
   type CreatePoolSnapshotParams
 } from './models/arbitrage.model.js';
+
+export {
+  launchSniperRepository,
+  LaunchSniperRepository,
+  type LaunchSniperPositionRow
+} from './models/launch-sniper.model.js';

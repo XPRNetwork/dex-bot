@@ -4,3 +4,7 @@ npm-debug.log
 .nyc
 .env
 .DS_Store
+data/
+logs/
+bot-output.log
+mainnet-bot.log

@@ -2,6 +2,52 @@
 
 An institutional-grade trading bot for the MetalX.com DEX with advanced strategies, AI-powered decision making, AMM-DEX arbitrage, and comprehensive risk management.
 
+## New in v2.1: Order Sniping & Fill Simulation (Jan 2026)
+
+The bot now features intelligent order sniping with precise fill simulation:
+
+| Feature | Description |
+|---------|-------------|
+| **Order Sniping** | Detects mispriced orders on DEX and sizes trades exactly to match them |
+| **Full Precision Orderbook** | Uses 0.000001 price precision to see individual orders |
+| **Fill Simulation** | Simulates orderbook fills before trading to predict actual execution price |
+| **Slippage Protection** | Only executes if simulated fill remains profitable after slippage |
+| **Status Logging** | Logs market state every 30s showing opportunities vs required thresholds |
+
+### How Order Sniping Works
+
+```
+Example:
+AMM price: $0.002895
+DEX has bid at $0.003100 for 8,000 XPR (7% premium!)
+
+Bot snipes:
+1. Buy exactly 8,000 XPR from AMM: $23.16
+2. Sell exactly 8,000 XPR on DEX at $0.003100: $24.80
+3. After 0.3% fees: ~$1.40 profit
+```
+
+Instead of using a fixed trade size and walking through multiple price levels (causing slippage), the bot:
+1. Scans every orderbook level for mispriced orders
+2. Calculates exact profit for each order
+3. Sizes the trade precisely to match the profitable order
+4. Executes a clean fill at the target price
+
+### Status Logging
+
+The bot logs market state every 30 seconds:
+```
+📊 Snipe scan: AMM=$0.002882 | Best bid=$0.002871 (-38 BPS) need>0.002920 | Best ask=$0.002894 (-41 BPS) need<0.002845
+```
+
+When opportunities are found:
+```
+🎯 Found 2 snipe opportunities:
+  AMM_TO_DEX: 5000 XPR @ $0.003100 = +150.3 BPS ($0.75)
+```
+
+---
+
 ## New in v2.0: Institutional-Grade Upgrade
 
 This release transforms the bot into an enterprise-ready trading platform. See **[WHATSNEW.md](./WHATSNEW.md)** for complete documentation.

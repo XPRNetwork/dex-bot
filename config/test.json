@@ -1,11 +1,97 @@
 {
-  "bot" : {
+  "bot": {
+    "tradeIntervalMS": "10000",
+    "slackIntervalMS": "1000000",
+    "slackBotToken": "",
+    "channelId": "",
+    "cancelOpenOrdersOnExit": true,
+    "gridPlacement": true,
+    "strategy": "cross-venue-arbitrage",
     "rpc": {
-      "endpoints" : [
+      "privateKeyPermission": "active",
+      "endpoints": [
+        "https://api-xprnetwork-test.saltant.io",
+        "https://tn1.protonnz.com",
         "https://rpc.api.testnet.metalx.com"
       ],
       "apiRoot": "https://dex.api.testnet.metalx.com/dex",
       "lightApiRoot": "https://testnet-lightapi.eosams.xeos.me/api"
+    },
+    "persistence": {
+      "type": "sqlite",
+      "path": "./data/dex-bot-testnet.db"
+    },
+    "risk": {
+      "maxPositionUSD": 500,
+      "maxTotalExposureUSD": 1000,
+      "maxPositionPercent": 50,
+      "minOrderSizeUSD": 0.1,
+      "maxOrdersPerMinute": 30,
+      "maxDrawdownPercent": 20,
+      "dailyLossLimitUSD": 100,
+      "consecutiveLossLimit": 10,
+      "circuitBreakerEnabled": true,
+      "cooldownMinutes": 30,
+      "autoReset": true
+    },
+    "claude": {
+      "enabled": false
+    },
+    "arbitrage": {
+      "enabled": false
+    },
+    "xmdTreasury": {
+      "enabled": true,
+      "autoConvert": false,
+      "preferredCollateral": "XUSDC",
+      "minConvertAmount": 10,
+      "reservePercent": 10
+    },
+    "crossVenueArbitrage": {
+      "enabled": true,
+      "pairs": [
+        {
+          "baseToken": "XPR",
+          "baseContract": "eosio.token",
+          "basePrecision": 4,
+          "ammPoolSymbol": "XPRUSDC",
+          "dexMarketSymbol": "XPR_XMD",
+          "dexMarketId": 3,
+          "enabled": true,
+          "minTradeSize": 100,
+          "maxTradeSize": 10000
+        }
+      ],
+      "minProfitBPS": 20,
+      "maxTradeUSD": 100,
+      "checkIntervalMS": 5000,
+      "dryRun": false,
+      "maxSlippageBPS": 50,
+      "cooldownMS": 60000
+    },
+    "strategies": [
+      {
+        "name": "cross-venue-arbitrage",
+        "enabled": true
+      }
+    ],
+    "monitoring": {
+      "healthCheckIntervalMS": 60000,
+      "metricsEnabled": true
+    },
+    "telegram": {
+      "enabled": true,
+      "alertOn": {
+        "tradeExecuted": true,
+        "orderPlaced": false,
+        "orderCancelled": false,
+        "profitThresholdUSD": 1,
+        "circuitBreakerTriggered": true,
+        "riskWarning": true,
+        "dailySummary": true,
+        "errorAlert": true
+      },
+      "maxMessagesPerMinute": 30
     }
   }
 }

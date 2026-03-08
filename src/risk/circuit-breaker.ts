@@ -374,6 +374,14 @@ export class CircuitBreaker {
   }
 
   /**
+   * Check if a specific strategy's circuit breaker is triggered
+   */
+  isTriggered(strategy: string): boolean {
+    const state = this.states.get(strategy);
+    return state?.isTriggered ?? false;
+  }
+
+  /**
    * Check if any circuit breaker is triggered
    */
   isAnyTriggered(): boolean {

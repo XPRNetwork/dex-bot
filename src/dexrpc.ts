@@ -43,20 +43,23 @@ const transact = async (actions: OrderAction[]) => {
     permission: privateKeyPermission,
   }];
   const authorizedActions = actions.map((action) => ({ ...action, authorization }));
-  const maxRetries = 3;
+  const maxRetries = 5;
   let attempts = 0;
   while(attempts < maxRetries) {
     try {
       await apiTransact(authorizedActions);
       break;
     }
-    catch {
+    catch (error) {
       attempts++;
       if (attempts >= maxRetries) {
         logger.error(`Failed after ${maxRetries} attempts`);
-        throw Error;
+        logger.error(`Last error: ${error}`);
+        throw error;
       }
-      logger.info(`Retrying RPC connection`);
+      logger.info(`Retrying RPC connection (attempt ${attempts}/${maxRetries})...`);
+      // Wait before retry - exponential backoff
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
     }
   }
 };
@@ -82,11 +85,12 @@ export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSI
   logger.info(`Placing ${orderSideText} order for ${quantityText} at ${price}`);
 
   const quantityNormalized = orderSide === ORDERSIDES.SELL
-    ? (bnQuantity.times(bidToken.multiplier)).toString()
-    : (bnQuantity.times(askToken.multiplier)).toString();
+    ? (bnQuantity.times(bidToken.multiplier)).integerValue(BigNumber.ROUND_DOWN).toString()
+    : (bnQuantity.times(askToken.multiplier)).integerValue(BigNumber.ROUND_DOWN).toString();
 
   const cPrice = new BigNumber(price);
-  const priceNormalized = cPrice.multipliedBy(askToken.multiplier);
+  // Round to integer - DEX requires integer price values
+  const priceNormalized = cPrice.multipliedBy(askToken.multiplier).integerValue(BigNumber.ROUND_DOWN);
 
   actions.push(
     {
@@ -220,4 +224,37 @@ export const cancelAllOrders = async (): Promise<void> => {
     console.log('cancel orders error', e)
     return undefined
   }
+};
+
+/**
+ * Transfer tokens to a recipient
+ * Used for XMD Treasury mint/redeem and other token transfers
+ *
+ * @param tokenContract - The token contract (e.g., 'xtokens', 'xmd.token', 'eosio.token')
+ * @param to - Recipient account
+ * @param quantity - Amount with symbol (e.g., '100.000000 XUSDC')
+ * @param memo - Transfer memo
+ */
+export const transferToken = async (
+  tokenContract: string,
+  to: string,
+  quantity: string,
+  memo: string = ''
+): Promise<any> => {
+  logger.info(`Transferring ${quantity} to ${to} via ${tokenContract} (memo: ${memo})`);
+
+  const action: OrderAction = {
+    account: tokenContract,
+    name: 'transfer',
+    data: {
+      from: username,
+      to,
+      quantity,
+      memo,
+    },
+    authorization,
+  };
+
+  const response = await transact([action]);
+  return response;
 };
