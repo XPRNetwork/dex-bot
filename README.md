@@ -1,6 +1,158 @@
 # dexbot
 
-An institutional-grade trading bot for the MetalX.com DEX with advanced strategies, AI-powered decision making, AMM-DEX arbitrage, and comprehensive risk management.
+An institutional-grade trading bot for the MetalX.com DEX on XPR Network. Features automated arbitrage, launch sniping, and multi-strategy execution.
+
+## Active Strategies
+
+| Strategy | File | Description |
+|----------|------|-------------|
+| **Launch Sniper** | `src/strategies/launch-sniper.ts` | Auto-buy new simplelaunch tokens, momentum exit, graduation dump |
+| **SimpleDEX Arbitrage** | `src/strategies/simpledex-arbitrage.ts` | Triangle arbs on SimpleDEX pools + SDEX↔MetalX DEX atomic arbs |
+| **Multi-Hop Arbitrage** | `src/strategies/multi-hop-arbitrage.ts` | LOAN/METAL bridge paths between AMM, DEX, Treasury |
+| **Cross-Venue Arbitrage** | `src/strategies/cross-venue-arbitrage.ts` | AMM vs DEX price arbitrage |
+| **Competitor Tracker** | `src/monitoring/competitor-tracker.ts` | Monitors other arb bots (wwworker, andrew4.gm) |
+
+## Quick Start
+
+```bash
+npm install --legacy-peer-deps
+
+export PROTON_USERNAME=your-account
+export PROTON_PRIVATE_KEY=PVT_K1_your-key
+export TELEGRAM_BOT_TOKEN=...     # Optional
+export TELEGRAM_CHAT_ID=...       # Optional
+
+npm run bot
+```
+
+---
+
+## Launch Sniper (`src/strategies/launch-sniper.ts`)
+
+Automatically buys new tokens on [simplelaunch](https://dex.protonnz.com) bonding curves and sells for profit.
+
+### How It Works
+
+1. **Discovery** (2s loop): Monitors `simplelaunch` contract for new curve deployments
+2. **Buy**: Sends XPR to `simplelaunch` with memo `buy:CURVE_ID:MIN_TOKENS_OUT`
+3. **Anti-snipe retry**: Creator-only period is 60s — retries every 500ms until allowed
+4. **Monitor** (5s loop): Watches price via bonding curve math, triggers sells
+5. **Graduation**: When curve graduates to SimpleDEX, claims tokens and optionally dumps
+
+### Sell Strategy (2-Lot + Moonbag)
+
+| Stage | Trigger | Action |
+|-------|---------|--------|
+| **Momentum exit (Lot 1)** | 2.2x within 30min | Sell 40%, min hold 30s |
+| **Sell target (Lot 2)** | 2.5x | Sell 40% |
+| **Sell target 2** | 5.0x | Sell 15% |
+| **Moonbag** | Never | Keep remaining ~5% forever |
+
+Splitting into 2 lots reduces price impact on the bonding curve — lot 2 gets a better price.
+
+### Graduation Handling
+
+When a token graduates from bonding curve to SimpleDEX:
+- **If we already took profit** (momentum exit done): **Keep moonbag**, just claim tokens
+- **If we never sold**: Claim and dump everything on SimpleDEX for XPR
+
+### Key Config (`config/mainnet.json`)
+
+```json
+{
+  "launchSniper": {
+    "enabled": true,
+    "buyAmountXPR": 4444,
+    "buyDelaySeconds": 0,
+    "checkIntervalMs": 2000,
+    "maxEntryXpr": 5000,
+    "maxConcurrentPositions": 10,
+    "sellTargets": [
+      { "percentToSell": 40, "priceMultiple": 2.5 },
+      { "percentToSell": 15, "priceMultiple": 5.0 }
+    ],
+    "momentumExit": {
+      "enabled": true,
+      "minPriceMultiple": 2.2,
+      "maxAgeSeconds": 1800,
+      "percentToSell": 40,
+      "minHoldSeconds": 30
+    },
+    "stopLoss": { "enabled": false, "priceMultiple": 0.5 },
+    "dryRun": false,
+    "indexerUrl": "https://indexer.protonnz.com"
+  }
+}
+```
+
+### Bonding Curve Math
+
+```typescript
+// Buy: how many tokens for X XPR
+xprAfterFee = xprAmount * 0.99;  // 1% buy fee
+tokensOut = (virtualTokens * xprAfterFee) / (virtualXpr + xprAfterFee);
+
+// Price: current XPR per token
+currentPrice = virtualXpr / virtualTokens;
+
+// Price multiple: how much has it pumped
+priceMultiple = currentPrice / entryPriceXprPerToken;
+```
+
+### Key Contracts
+
+| Contract | Purpose |
+|----------|---------|
+| `simplelaunch` | Bonding curve (buy/sell before graduation) |
+| `simpletoken` | Token balances (after graduation) |
+| `simpledex` | DEX pools (after graduation, swap via transfer with memo) |
+
+### Swap Memos
+
+```
+Buy on curve:  transfer XPR → simplelaunch, memo "buy:CURVE_ID:MIN_TOKENS_OUT"
+Sell on curve: simplelaunch::sell(seller, tokenId, tokenAmount, minXpr)
+Dump on DEX:   transfer tokens → simpledex, memo "swap:POOL_ID:0:0"
+```
+
+### Database Table
+
+```sql
+-- src/persistence/models/launch-sniper.model.ts
+CREATE TABLE launch_sniper_positions (
+  curve_id INTEGER PRIMARY KEY,
+  symbol TEXT, token_contract TEXT, precision_val INTEGER,
+  tokens_held TEXT, original_tokens_bought TEXT,
+  entry_price REAL, buy_executed_at INTEGER,
+  status TEXT,  -- waiting|bought|partial_sold|fully_sold|stopped_out|graduated
+  sell_targets_hit TEXT,  -- JSON array of booleans
+  momentum_exit_done INTEGER DEFAULT 0
+);
+```
+
+### Architecture: Split Tick Loops
+
+Discovery (new launches + buys) runs on a **fast 2s loop**. Position monitoring (sells) runs on a **separate 5s loop**. Discovery is never blocked by slow RPC calls from monitoring.
+
+### Competitor: andrew4.gm
+
+| Metric | Value |
+|--------|-------|
+| Median sell multiple | ~1.6x |
+| Hold time | 2-24 minutes |
+| Buy size | 3,000-12,000 XPR |
+| Strategy | Quick flip, sells at 1.5-1.8x |
+
+### Lessons Learned
+
+- **Speed is everything** — even 5 seconds late means worse entry price
+- **Anti-snipe retry at 500ms** is critical — the 60s creator-only window is the bottleneck
+- **Graduation dump must preserve moonbag** — check `momentumExitDone` before dumping
+- **Late-buy scaling disabled** — creators self-buy during anti-snipe, inflating thresholds
+- **2-lot sells beat single dump** — less price impact, lot 2 gets better price
+- **Post-trade balance check needs delay** — 1.5s after claim TX for chain state to update
+
+---
 
 ## New in v2.1: Order Sniping & Fill Simulation (Jan 2026)
 
