@@ -1206,6 +1206,17 @@ export class LaunchSniper {
       return true;
     } catch (error: any) {
       logger.error(`❌ Sell ${launch.symbol} failed: ${error.message}`);
+
+      // If insufficient holdings, refresh tokensHeld from chain to stop retrying wrong amounts
+      if (error.message?.includes('Insufficient holdings')) {
+        const actual = await this.checkCurveHoldings(launch.curveId);
+        if (actual >= 0n) {
+          logger.warn(`⚠️ ${launch.symbol}: chain holdings=${actual}, was tracking ${launch.tokensHeld} — syncing`);
+          launch.tokensHeld = actual;
+          this.savePosition(launch);
+        }
+      }
+
       await telegramNotifier.sendMessage(`❌ Sell ${launch.symbol} FAILED (${reason})\n${error.message.substring(0, 200)}`);
       return false;
     }

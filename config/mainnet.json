@@ -226,7 +226,7 @@
       "buyDelaySeconds": 0,
       "checkIntervalMs": 2000,
       "maxEntryXpr": 5000,
-      "maxConcurrentPositions": 10,
+      "maxConcurrentPositions": 1000,
       "sellTargets": [
         { "percentToSell": 40, "priceMultiple": 2.5 },
         { "percentToSell": 15, "priceMultiple": 5.0 }

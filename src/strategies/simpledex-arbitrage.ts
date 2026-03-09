@@ -788,10 +788,11 @@ export class SimpleDexArbitrage {
     xprPrice: number,
     calcEndXmd: (startRaw: bigint) => bigint | null
   ): RouteResult | null {
-    // Try sizes from 1 XMD up to maxXmd, geometrically spaced
+    // Try sizes from 2 XMD up to maxXmd, geometrically spaced
     // Pool 1 is very small (~300 XMD), so start tiny to find profitable sizes
+    // Min 2 XMD to stay above DEX minimum order size (1 XMD) after slippage
     const sizes: number[] = [];
-    for (let s = 1; s <= maxXmd; s = Math.max(s + 1, Math.floor(s * 1.5))) {
+    for (let s = 2; s <= maxXmd; s = Math.max(s + 1, Math.floor(s * 1.5))) {
       sizes.push(s);
     }
     if (sizes.length > 0 && sizes[sizes.length - 1] < maxXmd) sizes.push(Math.floor(maxXmd));
@@ -1077,8 +1078,6 @@ export class SimpleDexArbitrage {
   private async executeRoute(result: RouteResult): Promise<void> {
     this.isExecuting = true;
     this.lastTradeTime = Date.now();
-    this.consecutiveErrors = 0;
-    this.cooldownMs = 5000; // Reset cooldown on success
 
     const xprPrice = await this.getXprPrice();
     const tradeId = await profitabilityTracker.startTrade(
@@ -1139,6 +1138,10 @@ export class SimpleDexArbitrage {
       const txId = (txResult as any)?.transaction_id || 'unknown';
       logger.info(`✅ SimpleDEX ${result.route} executed: ${txId}`);
 
+      // Reset error tracking on success
+      this.consecutiveErrors = 0;
+      this.cooldownMs = 5000;
+
       // Record success
       profitabilityTracker.completeTrade(tradeId, result.tradeSizeUsd, result.tradeSizeUsd + result.profitUsd, [txId]);
       circuitBreaker.recordTradeResult(STRATEGY_NAME, result.profitUsd);
@@ -1163,6 +1166,12 @@ export class SimpleDexArbitrage {
       logger.error(`❌ SimpleDEX ${result.route} failed: ${msg}`);
 
       // If tx reverted due to MIN_OUT, that's safe — no tokens lost
+      // But still count as error to back off and stop spamming
+      this.consecutiveErrors++;
+      if (this.consecutiveErrors > 2) {
+        this.cooldownMs = Math.min(this.cooldownMs * 2, 60000);
+        logger.warn(`SimpleDEX ${result.route}: ${this.consecutiveErrors} consecutive failures, cooldown=${this.cooldownMs}ms`);
+      }
       if (msg.includes('min_out') || msg.includes('INSUFFICIENT_OUTPUT') || msg.includes('assertion failure')) {
         logger.info('  Transaction reverted safely (MIN_OUT protection)');
       } else {
