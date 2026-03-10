@@ -1133,22 +1133,32 @@ export class LaunchSniper {
    * Calculate how many tokens to sell for a given target.
    * percentToSell is percent of ORIGINAL position, not current holdings.
    * This ensures consistent sell amounts regardless of prior sells.
+   * MOONBAG FLOOR: always keep at least 20% of original — no config can bypass this.
    */
   private calculateSellAmount(launch: TrackedLaunch, percentToSell: number, targetIndex: number): bigint {
     if (launch.tokensHeld <= 0n) return 0n;
-
-    // 100% means sell everything remaining
-    if (percentToSell >= 100) {
-      return launch.tokensHeld;
-    }
 
     // Use original buy amount as base (falls back to current holdings if not set)
     const original = launch.originalTokensBought > 0n
       ? launch.originalTokensBought
       : launch.tokensHeld;
+
+    // MOONBAG FLOOR: never sell below 20% of original position
+    const moonBagFloor = original * 20n / 100n;
+
+    // 100% means sell everything ABOVE the moonbag floor
+    if (percentToSell >= 100) {
+      const sellable = launch.tokensHeld - moonBagFloor;
+      return sellable > 0n ? sellable : 0n;
+    }
+
     const amount = original * BigInt(percentToSell) / 100n;
-    // Never sell more than we actually hold, and at least 1 if we hold anything
-    return amount > launch.tokensHeld ? launch.tokensHeld : (amount > 0n ? amount : 1n);
+    // Cap: never sell below moonbag floor
+    const maxSellable = launch.tokensHeld - moonBagFloor;
+    if (maxSellable <= 0n) return 0n;
+
+    const capped = amount > maxSellable ? maxSellable : amount;
+    return capped > 0n ? capped : 0n;
   }
 
   private async executeSell(launch: TrackedLaunch, curve: CurveState, tokenAmount: bigint, reason: string): Promise<boolean> {
