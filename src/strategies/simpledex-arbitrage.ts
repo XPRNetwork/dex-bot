@@ -125,6 +125,7 @@ export class SimpleDexArbitrage {
   private lastTradeTime: number = 0;
   private cooldownMs: number = 5000;
   private consecutiveErrors: number = 0;
+  private blacklistedRoutes: Set<string> = new Set();
 
   // Cached proton.swaps pool states
   private ammPools: Map<string, AmmPoolState> = new Map();
@@ -501,9 +502,11 @@ export class SimpleDexArbitrage {
 
       if (opportunities.length === 0) return;
 
-      // Sort by profit, execute best
-      opportunities.sort((a, b) => b.profitBps - a.profitBps);
-      const best = opportunities[0];
+      // Filter out blacklisted routes and sort by profit
+      const viable = opportunities.filter(o => !this.blacklistedRoutes.has(o.route));
+      if (viable.length === 0) return;
+      viable.sort((a, b) => b.profitBps - a.profitBps);
+      const best = viable[0];
 
       logger.info(`🔷 SimpleDEX opportunity: ${best.route} = ${best.profitBps.toFixed(1)} BPS ($${best.profitUsd.toFixed(4)})`);
 
@@ -899,8 +902,12 @@ export class SimpleDexArbitrage {
     }
     const adj = new Map<string, PoolEdge[]>();
 
+    // Minimum reserve: skip pools where either reserve is tiny (< 10K raw units)
+    // This avoids discovering routes through imbalanced/illiquid pools that always exceed swap limits
+    const MIN_RESERVE = 100000n;  // 10 XPR at 4 decimals
     for (const pool of allPools) {
       if (pool.reserveA === 0n || pool.reserveB === 0n) continue;
+      if (pool.reserveA < MIN_RESERVE || pool.reserveB < MIN_RESERVE) continue;
       if (!adj.has(pool.tokenASymbol)) adj.set(pool.tokenASymbol, []);
       if (!adj.has(pool.tokenBSymbol)) adj.set(pool.tokenBSymbol, []);
       adj.get(pool.tokenASymbol)!.push({
@@ -983,20 +990,32 @@ export class SimpleDexArbitrage {
    * Forward: XPR → tokenA (leg1) → tokenB (leg2) → XPR (leg3)
    */
   private evalAutoTriForward(route: AutoTriangleRoute, maxXpr: number, xprPrice: number): RouteResult | null {
-    if (!simpleDexPoolMonitor.getPool(route.leg1PoolId) ||
-        !simpleDexPoolMonitor.getPool(route.leg2PoolId) ||
-        !simpleDexPoolMonitor.getPool(route.leg3PoolId)) return null;
+    const p1 = simpleDexPoolMonitor.getPool(route.leg1PoolId);
+    const p2 = simpleDexPoolMonitor.getPool(route.leg2PoolId);
+    const p3 = simpleDexPoolMonitor.getPool(route.leg3PoolId);
+    if (!p1 || !p2 || !p3) return null;
+
+    // Pre-check: skip if minimum trade (50 XPR) already exceeds any pool's 50% swap limit.
+    // This prevents discovering routes through imbalanced pools that can never execute.
+    const minTestRaw = 500000n; // 50 XPR
+    const testA = simpleDexPoolMonitor.calculateSwapOutput(route.leg1PoolId, minTestRaw, route.leg1XprIsA);
+    if (!testA) return null;
+    const testB = simpleDexPoolMonitor.calculateSwapOutput(route.leg2PoolId, testA, route.leg2TokenAIsA);
+    if (!testB) return null;
+    const testC = simpleDexPoolMonitor.calculateSwapOutput(route.leg3PoolId, testB, route.leg3TokenBIsA);
+    if (!testC) return null;
 
     return this.findOptimalSize(`${route.name}_TRI`, maxXpr, xprPrice, (startRaw) => {
       const aRaw = simpleDexPoolMonitor.calculateSwapOutput(route.leg1PoolId, startRaw, route.leg1XprIsA);
-      if (!aRaw) return null;
-      const safeA = this.safeMinOut(aRaw);
+      if (!aRaw || aRaw <= 0n) return null;
 
-      const bRaw = simpleDexPoolMonitor.calculateSwapOutput(route.leg2PoolId, safeA, route.leg2TokenAIsA);
-      if (!bRaw) return null;
-      const safeB = this.safeMinOut(bRaw);
+      const bRaw = simpleDexPoolMonitor.calculateSwapOutput(route.leg2PoolId, aRaw, route.leg2TokenAIsA);
+      if (!bRaw || bRaw <= 0n) return null;
 
-      return simpleDexPoolMonitor.calculateSwapOutput(route.leg3PoolId, safeB, route.leg3TokenBIsA);
+      const cRaw = simpleDexPoolMonitor.calculateSwapOutput(route.leg3PoolId, bRaw, route.leg3TokenBIsA);
+      if (!cRaw || cRaw <= 0n) return null;
+
+      return cRaw;
     });
   }
 
@@ -1004,20 +1023,30 @@ export class SimpleDexArbitrage {
    * Reverse: XPR → tokenB (leg3 reversed) → tokenA (leg2 reversed) → XPR (leg1 reversed)
    */
   private evalAutoTriReverse(route: AutoTriangleRoute, maxXpr: number, xprPrice: number): RouteResult | null {
-    if (!simpleDexPoolMonitor.getPool(route.leg1PoolId) ||
-        !simpleDexPoolMonitor.getPool(route.leg2PoolId) ||
-        !simpleDexPoolMonitor.getPool(route.leg3PoolId)) return null;
+    const p1 = simpleDexPoolMonitor.getPool(route.leg1PoolId);
+    const p2 = simpleDexPoolMonitor.getPool(route.leg2PoolId);
+    const p3 = simpleDexPoolMonitor.getPool(route.leg3PoolId);
+    if (!p1 || !p2 || !p3) return null;
+
+    const minTestRaw = 500000n;
+    const testB = simpleDexPoolMonitor.calculateSwapOutput(route.leg3PoolId, minTestRaw, !route.leg3TokenBIsA);
+    if (!testB) return null;
+    const testA = simpleDexPoolMonitor.calculateSwapOutput(route.leg2PoolId, testB, !route.leg2TokenAIsA);
+    if (!testA) return null;
+    const testC = simpleDexPoolMonitor.calculateSwapOutput(route.leg1PoolId, testA, !route.leg1XprIsA);
+    if (!testC) return null;
 
     return this.findOptimalSize(`${route.name}_TRI_REV`, maxXpr, xprPrice, (startRaw) => {
       const bRaw = simpleDexPoolMonitor.calculateSwapOutput(route.leg3PoolId, startRaw, !route.leg3TokenBIsA);
-      if (!bRaw) return null;
-      const safeB = this.safeMinOut(bRaw);
+      if (!bRaw || bRaw <= 0n) return null;
 
-      const aRaw = simpleDexPoolMonitor.calculateSwapOutput(route.leg2PoolId, safeB, !route.leg2TokenAIsA);
-      if (!aRaw) return null;
-      const safeA = this.safeMinOut(aRaw);
+      const aRaw = simpleDexPoolMonitor.calculateSwapOutput(route.leg2PoolId, bRaw, !route.leg2TokenAIsA);
+      if (!aRaw || aRaw <= 0n) return null;
 
-      return simpleDexPoolMonitor.calculateSwapOutput(route.leg1PoolId, safeA, !route.leg1XprIsA);
+      const cRaw = simpleDexPoolMonitor.calculateSwapOutput(route.leg1PoolId, aRaw, !route.leg1XprIsA);
+      if (!cRaw || cRaw <= 0n) return null;
+
+      return cRaw;
     });
   }
 
@@ -1172,16 +1201,23 @@ export class SimpleDexArbitrage {
         this.cooldownMs = Math.min(this.cooldownMs * 2, 60000);
         logger.warn(`SimpleDEX ${result.route}: ${this.consecutiveErrors} consecutive failures, cooldown=${this.cooldownMs}ms`);
       }
-      if (msg.includes('min_out') || msg.includes('INSUFFICIENT_OUTPUT') || msg.includes('assertion failure')) {
+      const safeRevert = msg.includes('min_out') || msg.includes('INSUFFICIENT_OUTPUT') ||
+        msg.includes('assertion failure') || msg.includes('Swap exceeds');
+      if (safeRevert) {
         logger.info('  Transaction reverted safely (MIN_OUT protection)');
+        // Blacklist route after 5 consecutive failures to stop spam
+        if (this.consecutiveErrors >= 5) {
+          this.blacklistedRoutes.add(result.route);
+          logger.warn(`SimpleDEX ${result.route}: blacklisted after ${this.consecutiveErrors} failures`);
+        }
       } else {
         // Record failure
         circuitBreaker.recordTradeResult(STRATEGY_NAME, -0.01); // Small penalty for failed tx
+        // Only send Telegram for non-safe failures
+        await telegramNotifier.sendMessage(
+          `❌ SimpleDEX ${result.route} FAILED\n${msg.substring(0, 200)}`
+        );
       }
-
-      await telegramNotifier.sendMessage(
-        `❌ SimpleDEX ${result.route} FAILED\n${msg.substring(0, 200)}`
-      );
     } finally {
       this.isExecuting = false;
     }

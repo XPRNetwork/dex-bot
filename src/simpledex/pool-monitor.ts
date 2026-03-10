@@ -171,6 +171,9 @@ export class SimpleDexPoolMonitor {
     const netInput = inputRaw - fee;
     const output = netInput * reserveOut / (reserveIn + netInput);
 
+    // SimpleDEX contract enforces max swap of 50% of output reserve (5000 bps)
+    if (output > reserveOut / 2n) return null;
+
     return output;
   }
 
