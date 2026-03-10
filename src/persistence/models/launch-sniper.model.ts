@@ -62,7 +62,7 @@ export class LaunchSniperRepository {
     const db = getDatabase();
     const stmt = db.prepare(
       `SELECT * FROM launch_sniper_positions
-       WHERE status IN ('waiting', 'bought', 'partial_sold', 'graduated')
+       WHERE status IN ('waiting', 'bought', 'partial_sold', 'graduated', 'fully_sold')
        ORDER BY detected_at DESC`
     );
     return stmt.all() as LaunchSniperPositionRow[];

@@ -1028,7 +1028,10 @@ export class LaunchSniper {
 
   private async monitorPositions(): Promise<void> {
     for (const [curveId, launch] of this.trackedLaunches) {
-      if (launch.status !== 'bought' && launch.status !== 'partial_sold') continue;
+      // Monitor any position that still holds tokens (moonbag included)
+      // Only skip positions with zero tokens or terminal states with nothing left
+      if (launch.tokensHeld <= 0n) continue;
+      if (launch.status === 'graduated' || launch.status === 'stopped_out' || launch.status === 'waiting') continue;
 
       const curve = await this.readCurveState(curveId);
       if (!curve) continue;
@@ -1102,8 +1105,8 @@ export class LaunchSniper {
           if (success) {
             launch.sellTargetsHit[i] = true;
 
-            // Update status
-            if (launch.sellTargetsHit.every(h => h)) {
+            // Update status — NEVER mark fully_sold while tokens remain (moonbag)
+            if (launch.sellTargetsHit.every(h => h) && launch.tokensHeld <= 0n) {
               launch.status = 'fully_sold';
             } else {
               launch.status = 'partial_sold';
@@ -1474,12 +1477,27 @@ export class LaunchSniper {
           const holdings = await this.checkCurveHoldings(row.curve_id);
           if (holdings > 0n) {
             launch.tokensHeld = holdings;
+            // Fix stale fully_sold: if tokens remain, keep monitoring
+            if (launch.status === 'fully_sold') {
+              logger.info(`  ⚠️ ${launch.symbol}: was fully_sold but still holds ${Number(holdings) / (10 ** launch.precision)} tokens — fixing to partial_sold`);
+              launch.status = 'partial_sold';
+            }
           }
         } else if (curveState && curveState.graduated) {
-          // Check simpletoken balance for graduated tokens
-          const balance = await this.checkTokenBalance(row.symbol, row.precision_val);
-          if (balance > 0n) {
-            launch.tokensHeld = balance;
+          // Graduated curve — check if tokens need claiming or are already in wallet
+          const curveHoldings = await this.checkCurveHoldings(row.curve_id);
+          const walletBalance = await this.checkTokenBalance(row.symbol, row.precision_val);
+
+          if (curveHoldings > 0n) {
+            // Tokens still on curve — need to claim
+            logger.info(`  🎓 ${launch.symbol}: graduated but ${Number(curveHoldings) / (10 ** launch.precision)} tokens unclaimed on curve — will claim`);
+            launch.tokensHeld = curveHoldings;
+            // Set status so monitor will process graduation
+            launch.status = 'partial_sold';
+          } else if (walletBalance > 0n) {
+            launch.tokensHeld = walletBalance;
+            launch.status = 'graduated';
+          } else {
             launch.status = 'graduated';
           }
         }
