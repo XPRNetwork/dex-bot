@@ -63,6 +63,7 @@ interface CurveState {
   realTokensSold: bigint;
   graduated: boolean;
   dexPoolId: number;
+  createdAt: number;     // Unix timestamp (seconds) — used to calculate anti-snipe end
 }
 
 interface TrackedLaunch {
@@ -380,20 +381,11 @@ export class LaunchSniper {
         };
         this.trackedLaunches.set(curveId, launch);
 
-        // Buy immediately — no delay
-        const curve: CurveState = {
-          id: curveId,
-          symbol: row.symbol,
-          creator: row.creator,
-          virtualXpr: BigInt(row.virtualXpr),
-          virtualTokens: BigInt(row.virtualTokens),
-          realXpr: BigInt(row.realXpr),
-          realTokensSold: BigInt(row.realTokensSold),
-          graduated: false,
-          dexPoolId: 0,
-        };
+        const createdAt = row.createdAt || 0;
 
-        await this.executeBuy(launch, curve);
+        // Schedule buy at exact anti-snipe end time (createdAt + 60s + 0.5s buffer)
+        // Fire-and-forget — does NOT block discovery loop
+        this.scheduleBuy(launch, createdAt);
 
         // Send Telegram notification with buttons for additional buys
         const buttons = [
@@ -612,22 +604,14 @@ export class LaunchSniper {
     } catch (error: any) {
       const msg = error.message || '';
       if (msg.includes('Creator-only') || msg.includes('early period') || msg.includes('antisnipe')) {
-        // Anti-snipe lockout — spin a fast dedicated retry loop (don't wait for tick)
-        if (!launch.antiSnipeRetrying) {
-          launch.antiSnipeRetrying = true;
-          logger.info(`🔒 ${launch.symbol}: creator-only period, fast-retrying every ${this.config.antiSnipeRetryMs}ms`);
-          await telegramNotifier.sendMessage(
-            `🔒 ${launch.symbol}: creator-only period\nFast-retrying every ${this.config.antiSnipeRetryMs}ms`
-          );
-          this.antiSnipeLoop(launch);
-        }
+        // Anti-snipe lockout — this shouldn't happen with scheduleBuy timing,
+        // but if it does, retry a few times
+        logger.info(`🔒 ${launch.symbol}: anti-snipe hit unexpectedly, retrying in 500ms`);
+        setTimeout(() => this.attemptBuy(launch, 5), 500);
       } else if (msg.includes('Slippage')) {
-        // Price moved — start fast retry loop to buy with fresh curve state immediately
-        logger.warn(`⚠️ ${launch.symbol}: slippage on buy, retrying immediately with fresh price`);
-        if (!launch.antiSnipeRetrying) {
-          launch.antiSnipeRetrying = true;
-          this.antiSnipeLoop(launch);
-        }
+        // Price moved — retry immediately with fresh curve state
+        logger.warn(`⚠️ ${launch.symbol}: slippage on buy, retrying with fresh price`);
+        setTimeout(() => this.attemptBuy(launch, 3), 0);
       } else {
         logger.error(`❌ Buy ${launch.symbol} failed: ${msg}`);
         launch.status = 'stopped_out';
@@ -638,77 +622,83 @@ export class LaunchSniper {
   }
 
   /**
-   * Fast retry loop for anti-snipe blocked launches.
-   * Runs independently of the main tick — retries every antiSnipeRetryMs
-   * until buy succeeds or curve gets too expensive.
+   * Schedule a buy at the exact anti-snipe end time.
+   * Instead of spamming 120 failed TXs, we calculate createdAt + 60s and sleep until then.
+   * Fires 0.5s after anti-snipe ends to land in the first eligible block.
    */
-  private antiSnipeLoop(launch: TrackedLaunch): void {
-    const maxAttempts = 120; // 60s at 500ms interval
-    let attempt = 0;
+  private scheduleBuy(launch: TrackedLaunch, createdAt: number): void {
+    const ANTI_SNIPE_SECONDS = 60;
+    const BUFFER_MS = 500; // 0.5s after anti-snipe ends
 
-    const retry = async () => {
-      attempt++;
-      if (attempt > maxAttempts) {
-        logger.info(`🔒 ${launch.symbol}: anti-snipe retry limit (${maxAttempts}) reached, giving up`);
-        launch.status = 'stopped_out';
-        launch.antiSnipeRetrying = false;
-        this.savePosition(launch);
-        await telegramNotifier.sendMessage(`⏱️ ${launch.symbol}: anti-snipe timeout after ${maxAttempts} attempts`);
-        return;
-      }
+    const antiSnipeEndMs = (createdAt + ANTI_SNIPE_SECONDS) * 1000;
+    const now = Date.now();
+    const delayMs = Math.max(0, antiSnipeEndMs - now + BUFFER_MS);
 
-      // Already bought by another path (e.g. inline button)
-      if (launch.status === 'bought' || launch.status === 'partial_sold') {
-        launch.antiSnipeRetrying = false;
-        return;
-      }
+    if (delayMs > 120_000) {
+      // More than 2 min away — something is wrong with the timestamp
+      logger.warn(`⚠️ ${launch.symbol}: anti-snipe delay ${(delayMs / 1000).toFixed(1)}s seems wrong, buying immediately`);
+      this.attemptBuy(launch);
+      return;
+    }
 
-      try {
-        const curve = await this.readCurveState(launch.curveId);
-        if (!curve) {
-          setTimeout(retry, this.config.antiSnipeRetryMs);
-          return;
-        }
-        if (curve.graduated) {
-          logger.info(`🔒 ${launch.symbol}: graduated during anti-snipe wait`);
-          launch.status = 'graduated';
-          launch.antiSnipeRetrying = false;
-          this.savePosition(launch);
-          return;
-        }
+    if (delayMs < 100) {
+      // Anti-snipe already ended — buy immediately
+      logger.info(`🎯 ${launch.symbol}: anti-snipe already ended, buying now`);
+      this.attemptBuy(launch);
+      return;
+    }
 
-        // Check late buy scaling — abort if curve too full
-        const realXprFloat = Number(curve.realXpr) / 10000;
-        if (this.config.lateBuyScaling.enabled && realXprFloat > this.config.lateBuyScaling.skipThresholdXPR) {
-          logger.info(`🔒 ${launch.symbol}: curve has ${realXprFloat.toFixed(0)} XPR (>${this.config.lateBuyScaling.skipThresholdXPR}), pump over — skipping`);
-          launch.status = 'stopped_out';
-          launch.antiSnipeRetrying = false;
-          this.savePosition(launch);
-          await telegramNotifier.sendMessage(
-            `⏭️ ${launch.symbol}: skipped — ${realXprFloat.toFixed(0)} XPR already in curve (pump over)`
-          );
-          return;
-        }
+    logger.info(`⏱️ ${launch.symbol}: anti-snipe ends in ${(delayMs / 1000).toFixed(1)}s — scheduled buy at exact moment`);
 
-        launch.status = 'waiting';
-        await this.executeBuy(launch, curve);
-      } catch (err: any) {
-        const emsg = err.message || '';
-        if (emsg.includes('Creator-only') || emsg.includes('early period') || emsg.includes('antisnipe')) {
-          // Still locked — schedule next retry
-          setTimeout(retry, this.config.antiSnipeRetryMs);
-        } else if (emsg.includes('Slippage')) {
-          // Price moved — retry immediately with fresh curve state (no delay)
-          logger.warn(`🔒 ${launch.symbol}: slippage on buy, retrying immediately with fresh price`);
-          setTimeout(retry, 0);
+    setTimeout(() => {
+      if (launch.status === 'bought' || launch.status === 'partial_sold') return; // Already bought
+      logger.info(`🎯 ${launch.symbol}: anti-snipe ended — executing buy NOW`);
+      this.attemptBuy(launch);
+    }, delayMs);
+  }
+
+  /**
+   * Attempt to buy with fresh curve state. If it fails with anti-snipe error,
+   * retries a few times at 500ms intervals (shouldn't happen with correct timing).
+   */
+  private async attemptBuy(launch: TrackedLaunch, retriesLeft: number = 3): Promise<void> {
+    if (launch.status === 'bought' || launch.status === 'partial_sold') return;
+
+    try {
+      const curve = await this.readCurveState(launch.curveId);
+      if (!curve) {
+        if (retriesLeft > 0) {
+          setTimeout(() => this.attemptBuy(launch, retriesLeft - 1), 500);
         } else {
-          logger.error(`🔒 ${launch.symbol}: anti-snipe retry error: ${emsg}`);
-          setTimeout(retry, this.config.antiSnipeRetryMs);
+          launch.status = 'stopped_out';
+          this.savePosition(launch);
         }
+        return;
       }
-    };
+      if (curve.graduated) {
+        logger.info(`🔒 ${launch.symbol}: graduated before buy`);
+        launch.status = 'graduated';
+        this.savePosition(launch);
+        return;
+      }
 
-    setTimeout(retry, this.config.antiSnipeRetryMs);
+      await this.executeBuy(launch, curve);
+    } catch (err: any) {
+      const emsg = err.message || '';
+      if ((emsg.includes('Creator-only') || emsg.includes('early period') || emsg.includes('antisnipe')) && retriesLeft > 0) {
+        // Still locked — retry a few more times
+        logger.info(`🔒 ${launch.symbol}: still in anti-snipe, retrying in 500ms (${retriesLeft} left)`);
+        setTimeout(() => this.attemptBuy(launch, retriesLeft - 1), 500);
+      } else if (emsg.includes('Slippage') && retriesLeft > 0) {
+        logger.warn(`⚠️ ${launch.symbol}: slippage on buy, retrying with fresh price`);
+        setTimeout(() => this.attemptBuy(launch, retriesLeft - 1), 0);
+      } else {
+        logger.error(`❌ ${launch.symbol}: buy failed: ${emsg}`);
+        launch.status = 'stopped_out';
+        this.savePosition(launch);
+        await telegramNotifier.sendMessage(`❌ Buy ${launch.symbol} FAILED\n${emsg.substring(0, 200)}`);
+      }
+    }
   }
 
   // ============================================================
@@ -1293,6 +1283,7 @@ export class LaunchSniper {
         realTokensSold: BigInt(row.realTokensSold),
         graduated: row.graduated === 1,
         dexPoolId: row.dexPoolId || 0,
+        createdAt: row.createdAt || 0,
       };
     } catch (error: any) {
       logger.debug(`readCurveState(${curveId}) error: ${error.message}`);
