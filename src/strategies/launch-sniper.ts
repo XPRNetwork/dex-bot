@@ -258,7 +258,7 @@ export class LaunchSniper {
     this.isDiscovering = true;
     try {
       await this.discoverNewLaunches();
-      await this.processPendingBuys();
+      // processPendingBuys removed — scheduleBuy() handles buy timing precisely
       // Reset error counter on success
       if (this.consecutiveDiscoveryErrors > 0) {
         logger.info(`🚀 Discovery recovered after ${this.consecutiveDiscoveryErrors} consecutive errors`);
