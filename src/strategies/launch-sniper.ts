@@ -81,6 +81,7 @@ interface TrackedLaunch {
   momentumExitDone: boolean;
   status: 'waiting' | 'bought' | 'partial_sold' | 'fully_sold' | 'stopped_out' | 'graduated';
   antiSnipeRetrying?: boolean;
+  buyInProgress?: boolean;   // Mutex flag to prevent concurrent buy attempts
 }
 
 const BUY_FEE = 0.01;
@@ -492,6 +493,22 @@ export class LaunchSniper {
   }
 
   private async executeBuy(launch: TrackedLaunch, curve: CurveState): Promise<void> {
+    // Prevent concurrent buy attempts (scheduleBuy + catch retries can race)
+    if (launch.status === 'bought' || launch.status === 'partial_sold') return;
+    if (launch.buyInProgress) {
+      logger.info(`⏳ ${launch.symbol}: buy already in progress, skipping duplicate`);
+      return;
+    }
+    launch.buyInProgress = true;
+
+    try {
+      await this._executeBuyInner(launch, curve);
+    } finally {
+      launch.buyInProgress = false;
+    }
+  }
+
+  private async _executeBuyInner(launch: TrackedLaunch, curve: CurveState): Promise<void> {
     const extraXpr = this.buyAmountOverrides.get(launch.curveId) || 0;
     let totalBuyXpr = this.config.buyAmountXPR + extraXpr;
 
@@ -604,14 +621,11 @@ export class LaunchSniper {
     } catch (error: any) {
       const msg = error.message || '';
       if (msg.includes('Creator-only') || msg.includes('early period') || msg.includes('antisnipe')) {
-        // Anti-snipe lockout — this shouldn't happen with scheduleBuy timing,
-        // but if it does, retry a few times
-        logger.info(`🔒 ${launch.symbol}: anti-snipe hit unexpectedly, retrying in 500ms`);
-        setTimeout(() => this.attemptBuy(launch, 5), 500);
+        // Anti-snipe error — bubble up so attemptBuy can handle retries
+        throw error;
       } else if (msg.includes('Slippage')) {
-        // Price moved — retry immediately with fresh curve state
-        logger.warn(`⚠️ ${launch.symbol}: slippage on buy, retrying with fresh price`);
-        setTimeout(() => this.attemptBuy(launch, 3), 0);
+        // Slippage error — bubble up so attemptBuy can handle retries
+        throw error;
       } else {
         logger.error(`❌ Buy ${launch.symbol} failed: ${msg}`);
         launch.status = 'stopped_out';
