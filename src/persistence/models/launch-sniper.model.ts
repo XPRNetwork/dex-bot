@@ -15,6 +15,7 @@ export interface LaunchSniperPositionRow {
   status: string;
   total_xpr_spent: number;
   momentum_exit_done: number;
+  real_xpr_at_buy: string;  // bigint as string
   updated_at: string;
 }
 
@@ -25,8 +26,8 @@ export class LaunchSniperRepository {
       INSERT INTO launch_sniper_positions
         (curve_id, symbol, precision_val, creator, detected_at, buy_executed_at,
          entry_price_xpr_per_token, tokens_held, original_tokens_bought, token_contract,
-         sell_targets_hit, status, total_xpr_spent, momentum_exit_done, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         sell_targets_hit, status, total_xpr_spent, momentum_exit_done, real_xpr_at_buy, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(curve_id) DO UPDATE SET
         symbol = excluded.symbol,
         precision_val = excluded.precision_val,
@@ -41,6 +42,7 @@ export class LaunchSniperRepository {
         status = excluded.status,
         total_xpr_spent = excluded.total_xpr_spent,
         momentum_exit_done = excluded.momentum_exit_done,
+        real_xpr_at_buy = excluded.real_xpr_at_buy,
         updated_at = excluded.updated_at
     `);
     stmt.run(
@@ -48,7 +50,7 @@ export class LaunchSniperRepository {
       pos.detected_at, pos.buy_executed_at, pos.entry_price_xpr_per_token,
       pos.tokens_held, pos.original_tokens_bought, pos.token_contract,
       pos.sell_targets_hit, pos.status, pos.total_xpr_spent, pos.momentum_exit_done,
-      getCurrentTimestamp()
+      pos.real_xpr_at_buy, getCurrentTimestamp()
     );
   }
 

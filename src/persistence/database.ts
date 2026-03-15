@@ -89,6 +89,7 @@ function runMigrations(database: Database.Database): void {
     { name: '007_launch_sniper_positions', sql: migration007LaunchSniperPositions },
     { name: '008_launch_sniper_original_tokens', sql: migration008LaunchSniperOriginalTokens },
     { name: '009_launch_sniper_momentum_exit', sql: migration009LaunchSniperMomentumExit },
+    { name: '010_launch_sniper_real_xpr_at_buy', sql: migration010LaunchSniperRealXprAtBuy },
   ];
 
   const appliedMigrations = database
@@ -424,6 +425,11 @@ const migration008LaunchSniperOriginalTokens = `
 // Migration 009: Add momentum_exit_done to launch sniper positions
 const migration009LaunchSniperMomentumExit = `
   ALTER TABLE launch_sniper_positions ADD COLUMN momentum_exit_done INTEGER NOT NULL DEFAULT 0;
+`;
+
+// Migration 010: Add real_xpr_at_buy for auto sell-back no-momentum detection
+const migration010LaunchSniperRealXprAtBuy = `
+  ALTER TABLE launch_sniper_positions ADD COLUMN real_xpr_at_buy TEXT NOT NULL DEFAULT '0';
 `;
 
 // Utility function to get current date in YYYY-MM-DD format

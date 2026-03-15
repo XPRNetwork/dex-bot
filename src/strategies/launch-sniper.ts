@@ -48,6 +48,12 @@ interface LaunchSniperConfig {
     reducedThresholdXPR: number; // realXpr above this → use reduced buy
     skipThresholdXPR: number;    // realXpr above this → skip entirely
   };
+  autoSellBack: {
+    enabled: boolean;
+    noMomentumSeconds: number;      // Sell if no other buyers within this window
+    stalePositionSeconds: number;   // Sell if price < threshold by this time
+    staleMinPriceMultiple: number;  // Must hit this or get sold back
+  };
   antiSnipeRetryMs: number;  // Retry interval during creator-only period
   dryRun: boolean;
   indexerUrl: string;
@@ -80,6 +86,7 @@ interface TrackedLaunch {
   sellTargetsHit: boolean[];   // one per sellTargets entry
   momentumExitDone: boolean;
   status: 'waiting' | 'bought' | 'partial_sold' | 'fully_sold' | 'stopped_out' | 'graduated';
+  realXprAtBuy: bigint;      // realXpr on curve at buy time — for no-momentum detection
   antiSnipeRetrying?: boolean;
   buyInProgress?: boolean;   // Mutex flag to prevent concurrent buy attempts
 }
@@ -134,6 +141,12 @@ export class LaunchSniper {
         reducedThresholdXPR: 5000,
         skipThresholdXPR: 15000,
       },
+      autoSellBack: config.launchSniper?.autoSellBack ?? {
+        enabled: true,
+        noMomentumSeconds: 90,
+        stalePositionSeconds: 600,
+        staleMinPriceMultiple: 1.5,
+      },
       antiSnipeRetryMs: config.launchSniper?.antiSnipeRetryMs ?? 500,
       dryRun: config.launchSniper?.dryRun ?? true,
       indexerUrl: config.launchSniper?.indexerUrl ?? 'https://indexer.protonnz.com',
@@ -164,6 +177,7 @@ export class LaunchSniper {
     logger.info(`  Stop loss: ${this.config.stopLoss.enabled ? `${this.config.stopLoss.priceMultiple}x` : 'disabled'}`);
     logger.info(`  Momentum exit: ${this.config.momentumExit.enabled ? `${this.config.momentumExit.percentToSell}% @ ${this.config.momentumExit.minPriceMultiple}x within ${this.config.momentumExit.maxAgeSeconds}s (min hold: ${this.config.momentumExit.minHoldSeconds}s)` : 'disabled'}`);
     logger.info(`  Late buy scaling: ${this.config.lateBuyScaling.enabled ? `reduce→${this.config.lateBuyScaling.reducedBuyXPR} XPR @${this.config.lateBuyScaling.reducedThresholdXPR}, skip @${this.config.lateBuyScaling.skipThresholdXPR}` : 'disabled'}`);
+    logger.info(`  Auto sell-back: ${this.config.autoSellBack.enabled ? `no-buyers@${this.config.autoSellBack.noMomentumSeconds}s, stale@${this.config.autoSellBack.stalePositionSeconds}s (<${this.config.autoSellBack.staleMinPriceMultiple}x)` : 'disabled'}`);
     logger.info(`  Anti-snipe retry: ${this.config.antiSnipeRetryMs}ms`);
     logger.info(`  Dry run: ${this.config.dryRun}`);
 
@@ -199,6 +213,7 @@ export class LaunchSniper {
           tokenContract: 'simpletoken',
           sellTargetsHit: this.config.sellTargets.map(() => false),
           momentumExitDone: false,
+          realXprAtBuy: 0n,
           status: 'stopped_out',  // will be set to 'bought' after buy
         };
         // Try to get symbol from indexer
@@ -378,6 +393,7 @@ export class LaunchSniper {
           tokenContract: 'simpletoken',
           sellTargetsHit: this.config.sellTargets.map(() => false),
           momentumExitDone: false,
+          realXprAtBuy: 0n,
           status: 'waiting',
         };
         this.trackedLaunches.set(curveId, launch);
@@ -600,6 +616,13 @@ export class LaunchSniper {
       launch.originalTokensBought = actualTokens;
       launch.status = 'bought';
       this.totalXprDeployed += totalBuyXpr;
+
+      // Record realXpr at buy time for no-momentum detection
+      const freshCurve = await this.readCurveState(launch.curveId);
+      if (freshCurve) {
+        launch.realXprAtBuy = freshCurve.realXpr;
+      }
+
       this.savePosition(launch);
 
       logger.info(`✅ Bought ${actualFloat.toFixed(launch.precision)} ${launch.symbol} @ ${actualEntryPrice.toFixed(6)} XPR/token (TX: ${txId})`);
@@ -1069,6 +1092,47 @@ export class LaunchSniper {
       const currentPrice = this.calculateCurrentPrice(curve.virtualXpr, curve.virtualTokens);
       const priceMultiple = currentPrice / launch.entryPriceXprPerToken;
 
+      // --- AUTO SELL-BACK: recover capital from dead tokens ---
+      if (this.config.autoSellBack.enabled && launch.status === 'bought' && !launch.momentumExitDone) {
+        const ageSeconds = (Date.now() - launch.buyExecutedAt) / 1000;
+
+        // Check 1: No other buyers within 90s → dead token, sell back immediately
+        if (ageSeconds >= this.config.autoSellBack.noMomentumSeconds && launch.realXprAtBuy > 0n) {
+          const currentRealXpr = curve.realXpr;
+          // If nobody else bought, realXpr is same as when we bought (tolerance: 0.1 XPR)
+          if (currentRealXpr <= launch.realXprAtBuy + 1000n) {
+            logger.info(`💀 ${launch.symbol}: no other buyers after ${ageSeconds.toFixed(0)}s — selling back`);
+            const success = await this.executeSell(launch, curve, launch.tokensHeld,
+              `no momentum (${ageSeconds.toFixed(0)}s, no new buyers)`);
+            if (success) {
+              launch.status = 'stopped_out';
+              this.savePosition(launch);
+              await telegramNotifier.sendMessage(
+                `💀 SELL-BACK: ${launch.symbol}\nNo buyers after ${Math.round(ageSeconds)}s — recovered XPR`
+              );
+            }
+            continue;
+          }
+        }
+
+        // Check 2: Price hasn't hit threshold after 10min → stale, sell back
+        if (ageSeconds >= this.config.autoSellBack.stalePositionSeconds) {
+          if (priceMultiple < this.config.autoSellBack.staleMinPriceMultiple) {
+            logger.info(`⏰ ${launch.symbol}: ${priceMultiple.toFixed(2)}x after ${(ageSeconds / 60).toFixed(1)}min (need ${this.config.autoSellBack.staleMinPriceMultiple}x) — selling back`);
+            const success = await this.executeSell(launch, curve, launch.tokensHeld,
+              `stale position (${priceMultiple.toFixed(2)}x after ${Math.round(ageSeconds / 60)}min)`);
+            if (success) {
+              launch.status = 'stopped_out';
+              this.savePosition(launch);
+              await telegramNotifier.sendMessage(
+                `⏰ SELL-BACK: ${launch.symbol}\n${priceMultiple.toFixed(2)}x after ${Math.round(ageSeconds / 60)}min — recovered XPR`
+              );
+            }
+            continue;
+          }
+        }
+      }
+
       // Momentum exit: if price rose fast, take profit early (but wait minHoldSeconds first)
       if (this.config.momentumExit.enabled && !launch.momentumExitDone) {
         const ageSeconds = (Date.now() - launch.buyExecutedAt) / 1000;
@@ -1428,6 +1492,7 @@ export class LaunchSniper {
         status: launch.status,
         total_xpr_spent: this.buyAmountOverrides.get(launch.curveId) || 0,
         momentum_exit_done: launch.momentumExitDone ? 1 : 0,
+        real_xpr_at_buy: launch.realXprAtBuy.toString(),
       });
     } catch (error: any) {
       logger.debug(`savePosition(${launch.symbol}) error: ${error.message}`);
@@ -1473,6 +1538,7 @@ export class LaunchSniper {
           tokenContract: row.token_contract,
           sellTargetsHit,
           momentumExitDone: !!(row as any).momentum_exit_done,
+          realXprAtBuy: BigInt((row as any).real_xpr_at_buy || '0'),
           status: row.status as TrackedLaunch['status'],
         };
 
