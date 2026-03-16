@@ -243,9 +243,9 @@
       },
       "autoSellBack": {
         "enabled": true,
-        "noMomentumSeconds": 90,
-        "stalePositionSeconds": 600,
-        "staleMinPriceMultiple": 1.5
+        "noMomentumSeconds": 300,
+        "stalePositionSeconds": 900,
+        "staleMinPriceMultiple": 1.2
       },
       "dryRun": false,
       "indexerUrl": "https://indexer.protonnz.com"
