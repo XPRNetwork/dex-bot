@@ -1288,6 +1288,15 @@ export class LaunchSniper {
     } catch (error: any) {
       logger.error(`❌ Sell ${launch.symbol} failed: ${error.message}`);
 
+      // If no holdings at all, mark position as stopped_out to prevent infinite retries
+      if (error.message?.includes('No holdings found') || error.message?.includes('No holdings')) {
+        logger.warn(`⚠️ ${launch.symbol}: no holdings on chain — marking stopped_out`);
+        launch.tokensHeld = 0n;
+        launch.status = 'stopped_out';
+        this.savePosition(launch);
+        return false;
+      }
+
       // If insufficient holdings, refresh tokensHeld from chain to stop retrying wrong amounts
       if (error.message?.includes('Insufficient holdings')) {
         const actual = await this.checkCurveHoldings(launch.curveId);
