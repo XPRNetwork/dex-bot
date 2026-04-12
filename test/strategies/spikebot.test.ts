@@ -435,6 +435,44 @@ describe('SpikeBotStrategy', () => {
       expect(prepareLimitOrder).toHaveBeenCalled();
       expect(state.spikeOrders.length).toBeGreaterThan(0);
     });
+
+    it('preserves held recovery across MA-drift rebalance', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // Seed a held order + one TP so the rebalance branch runs
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-active', entryPrice: 1.0, cyclesSincePlace: 1, originalTargetPrice: 1.05,
+      }];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.03, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-held', entryPrice: 1.02, cyclesSincePlace: 20,
+        originalTargetPrice: 1.05, heldSince: '2026-04-11T23:09:21Z',
+      }];
+      state.priceHistory = Array(9).fill(1.06);
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06); // MA will drift past 2%
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-active', price: 1.05, order_side: 2 },
+        { order_id: 'tp-held', price: 1.03, order_side: 2 },
+      ]);
+
+      await strategy.trade();
+
+      // Active TP gets cancelled during rebalance; held TP survives
+      expect(cancelOrder).toHaveBeenCalledWith('tp-active');
+      expect(cancelOrder).not.toHaveBeenCalledWith('tp-held');
+      expect(state.heldRecoveryOrders.length).toBe(1);
+      expect(state.heldRecoveryOrders[0].orderId).toBe('tp-held');
+    });
   });
 
   describe('Config initialization', () => {
