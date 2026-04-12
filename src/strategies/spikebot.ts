@@ -132,19 +132,18 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         ];
 
         const recoveryPool = [...state.takeProfitOrders, ...state.heldRecoveryOrders];
-        const totalQty = recoveryPool.reduce((s, o) => s + o.quantity, 0);
-        const weightedEntrySum = recoveryPool.reduce(
-          (s, o) => s + (o.entryPrice ?? 0) * o.quantity, 0,
+        const notionalLocked = recoveryPool.reduce(
+          (s, o) => s + o.price * o.quantity, 0,
         );
-        const avgEntryPrice = totalQty > 0 && weightedEntrySum > 0
-          ? weightedEntrySum / totalQty
+
+        const entryPool = recoveryPool.filter(o => o.entryPrice !== undefined);
+        const entryQty = entryPool.reduce((s, o) => s + o.quantity, 0);
+        const avgEntryPrice = entryQty > 0
+          ? entryPool.reduce((s, o) => s + o.entryPrice! * o.quantity, 0) / entryQty
           : null;
         const entryDriftPct = avgEntryPrice !== null
           ? (state.currentMA - avgEntryPrice) / avgEntryPrice * 100
           : null;
-        const notionalLocked = recoveryPool.reduce(
-          (s, o) => s + o.price * o.quantity, 0,
-        );
 
         const patienceCount = state.takeProfitOrders.filter(
           o => (o.cyclesSincePlace ?? 0) <= this.maxReboundCycles,
