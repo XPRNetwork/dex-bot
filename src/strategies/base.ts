@@ -19,20 +19,22 @@ export interface RecoveryOrderState {
   heldSince?: string;
 }
 
+export interface SpikeBotBreakdown {
+  spike: number;
+  patience: number;
+  adjusting: number;
+  held: number;
+  avgEntryPrice: number | null;
+  entryDriftPct: number | null;
+  notionalLocked: number;
+}
+
 export interface OrderStateEntry {
   symbol: string;
   orders: OrderHistory[];
   expectedOrders: number;
   recoveryOrders?: RecoveryOrderState[];
-  breakdown?: {
-    spike: number;
-    patience: number;
-    adjusting: number;
-    held: number;
-    avgEntryPrice: number | null;
-    entryDriftPct: number | null;
-    notionalLocked: number;
-  };
+  breakdown?: SpikeBotBreakdown;
 }
 
 export interface MarketDetails {
