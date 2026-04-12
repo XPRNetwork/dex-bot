@@ -1,3 +1,15 @@
+/**
+ * Command queue: append-only JSON-lines IPC between dashboard and running bot.
+ *
+ * Dashboard appends BotCommand entries to the commands file; bot consumes them at
+ * trade-cycle boundaries, writes BotCommandResult entries to the results file, and
+ * clears processed commands. Results file is rotated to the most recent 200 entries.
+ *
+ * Concurrency: append is atomic (fs.appendFile). Callers reading + clearing the
+ * commands file must use an atomic rename-first pattern to avoid losing commands
+ * appended between read and clear — see base.ts processCommands.
+ */
+
 import * as fsp from 'fs/promises';
 
 export interface BotCommand {
@@ -16,6 +28,7 @@ export interface BotCommandResult {
 }
 
 const MAX_RESULTS = 200;
+const VALID_TYPES = new Set<BotCommand['type']>(['cancel_order', 'clear_held', 'clear_non_held']);
 
 export async function readPending(filePath: string): Promise<BotCommand[]> {
   try {
@@ -26,10 +39,12 @@ export async function readPending(filePath: string): Promise<BotCommand[]> {
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
-        const parsed = JSON.parse(trimmed) as BotCommand;
-        if (!parsed.id || seen.has(parsed.id)) continue;
+        const parsed = JSON.parse(trimmed) as Partial<BotCommand>;
+        if (!parsed.id || typeof parsed.id !== 'string') continue;
+        if (!parsed.type || !VALID_TYPES.has(parsed.type as BotCommand['type'])) continue;
+        if (seen.has(parsed.id)) continue;
         seen.add(parsed.id);
-        out.push(parsed);
+        out.push(parsed as BotCommand);
       } catch {
         // skip malformed line
       }

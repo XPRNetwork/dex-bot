@@ -56,6 +56,18 @@ describe('command-queue', () => {
     expect(result).toEqual([good]);
   });
 
+  it('skips entries missing required fields', async () => {
+    const lines = [
+      JSON.stringify({ id: 'a', type: 'clear_held', issuedAt: 't' }), // valid
+      JSON.stringify({ type: 'clear_held', issuedAt: 't' }),           // no id
+      JSON.stringify({ id: 'b', issuedAt: 't' }),                       // no type
+      JSON.stringify({ id: 'c', type: 'invalid', issuedAt: 't' }),      // bad type
+    ];
+    fs.writeFileSync(cmdPath, lines.join('\n') + '\n');
+    const result = await readPending(cmdPath);
+    expect(result.map(r => r.id)).toEqual(['a']);
+  });
+
   it('appends a result preserving existing lines', async () => {
     const r1: BotCommandResult = { id: 'a', status: 'ok', appliedAt: 't1' };
     const r2: BotCommandResult = { id: 'b', status: 'error', appliedAt: 't2', message: 'x' };
