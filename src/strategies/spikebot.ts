@@ -405,7 +405,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
   async cancelOwnOrders(): Promise<void> {
     const allTracked: TrackedOrder[] = [];
     for (const state of this.pairStates) {
-      allTracked.push(...state.spikeOrders, ...state.takeProfitOrders);
+      allTracked.push(...state.spikeOrders, ...state.takeProfitOrders, ...state.heldRecoveryOrders);
     }
     if (allTracked.length > 0) {
       logger.info(`[SpikeBot] Cancelling ${allTracked.length} tracked orders on shutdown`);
