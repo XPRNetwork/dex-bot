@@ -285,6 +285,30 @@ export abstract class TradingStrategyBase implements TradingStrategy {
     }
   }
 
+  protected async wipeStateFiles(): Promise<void> {
+    const stateDir = process.env.ORDER_STATE_DIR;
+    const instanceId = process.env.DASHBOARD_INSTANCE_ID;
+    if (!stateDir || !instanceId) return;
+    const names = [
+      `${instanceId}-tracked.json`,
+      `${instanceId}-orders.json`,
+      `${instanceId}-commands.jsonl`,
+      `${instanceId}-command-results.jsonl`,
+    ];
+    for (const name of names) {
+      const p = path.join(stateDir, name);
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch (error) {
+        baseLogger.warn(`Failed to wipe state file ${name}:`, error);
+      }
+    }
+  }
+
+  public async wipeState(): Promise<void> {
+    await this.wipeStateFiles();
+  }
+
   async cancelOwnOrders(): Promise<void> {
     // Default implementation — subclasses can override with specific tracked orders
     baseLogger.info('[Tracking] cancelOwnOrders called (base no-op)');

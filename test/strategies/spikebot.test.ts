@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockDexAPI, createMockMarket } from '../helpers/mock-dexapi';
+import * as fsNode from 'fs';
+import * as pathNode from 'path';
+import * as osNode from 'os';
 
 vi.mock('../../src/utils', () => ({
   getLogger: () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn() }),
@@ -671,6 +674,48 @@ describe('SpikeBotStrategy', () => {
 
       expect((strategy as any).maxReboundCycles).toBe(20);
       expect((strategy as any).reboundStepPct).toBe(0.5);
+    });
+  });
+
+  describe('wipeStateFiles', () => {
+    let tmpDir: string;
+    let originalStateDir: string | undefined;
+    let originalInstanceId: string | undefined;
+
+    beforeEach(() => {
+      tmpDir = fsNode.mkdtempSync(pathNode.join(osNode.tmpdir(), 'wipe-'));
+      originalStateDir = process.env.ORDER_STATE_DIR;
+      originalInstanceId = process.env.DASHBOARD_INSTANCE_ID;
+      process.env.ORDER_STATE_DIR = tmpDir;
+      process.env.DASHBOARD_INSTANCE_ID = 'inst1';
+    });
+
+    afterEach(() => {
+      process.env.ORDER_STATE_DIR = originalStateDir;
+      process.env.DASHBOARD_INSTANCE_ID = originalInstanceId;
+      fsNode.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('deletes all four state files when present', async () => {
+      const files = [
+        'inst1-tracked.json',
+        'inst1-orders.json',
+        'inst1-commands.jsonl',
+        'inst1-command-results.jsonl',
+      ];
+      for (const f of files) {
+        fsNode.writeFileSync(pathNode.join(tmpDir, f), 'data');
+      }
+      const s = new SpikeBotStrategy();
+      await (s as any).wipeStateFiles();
+      for (const f of files) {
+        expect(fsNode.existsSync(pathNode.join(tmpDir, f))).toBe(false);
+      }
+    });
+
+    it('is a no-op when files are missing', async () => {
+      const s = new SpikeBotStrategy();
+      await expect((s as any).wipeStateFiles()).resolves.toBeUndefined();
     });
   });
 });
