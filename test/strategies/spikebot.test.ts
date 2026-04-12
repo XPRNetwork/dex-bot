@@ -30,6 +30,7 @@ const mockDexAPI = createMockDexAPI();
 
 import { SpikeBotStrategy } from '../../src/strategies/spikebot';
 import { cancelOrder, withdrawAll } from '../../src/dexrpc';
+import type { TrackedOrder } from '../../src/interfaces';
 
 describe('SpikeBotStrategy', () => {
   let strategy: SpikeBotStrategy;
@@ -327,6 +328,12 @@ describe('SpikeBotStrategy', () => {
       expect(state.heldRecoveryOrders.length).toBe(1);
       expect(state.heldRecoveryOrders[0].orderId).toBe('tp-1');
       expect(state.heldRecoveryOrders[0].heldSince).toBeDefined();
+
+      const { events } = await import('../../src/events');
+      expect(events.orderHeld).toHaveBeenCalledWith(
+        expect.stringContaining('Held SELL TP'),
+        expect.objectContaining({ market: 'XMT_XMD', side: 'SELL', entryPrice: 0.90 }),
+      );
     });
 
     it('holds BUY take-profit when adjusted price would cross entry price', async () => {
@@ -359,6 +366,12 @@ describe('SpikeBotStrategy', () => {
       expect(state.heldRecoveryOrders.length).toBe(1);
       expect(state.heldRecoveryOrders[0].orderId).toBe('tp-1');
       expect(state.heldRecoveryOrders[0].heldSince).toBeDefined();
+
+      const { events } = await import('../../src/events');
+      expect(events.orderHeld).toHaveBeenCalledWith(
+        expect.stringContaining('Held BUY TP'),
+        expect.objectContaining({ market: 'XMT_XMD', side: 'BUY', entryPrice: 1.10 }),
+      );
     });
 
     it('fills held recovery when price returns', async () => {
@@ -518,6 +531,32 @@ describe('SpikeBotStrategy', () => {
       expect(state2.heldRecoveryOrders[0].heldSince).toBe('2026-04-11T23:09:21Z');
       expect(state2.takeProfitOrders.length).toBe(0);
       expect(state2.spikeOrders.length).toBe(0);
+    });
+
+    it('cancels held recovery orders on graceful shutdown', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 0.91, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-held', entryPrice: 0.90, cyclesSincePlace: 20,
+        originalTargetPrice: 1.0, heldSince: '2026-04-11T23:09:21Z',
+      }];
+
+      const cancelled: TrackedOrder[] = [];
+      (strategy as any).cancelTrackedOrders = vi.fn(async (orders: TrackedOrder[]) => {
+        cancelled.push(...orders);
+      });
+      (strategy as any).cleanupTrackedOrdersFile = vi.fn();
+
+      await strategy.cancelOwnOrders();
+
+      expect(cancelled).toHaveLength(1);
+      expect(cancelled[0].orderId).toBe('tp-held');
     });
   });
 
