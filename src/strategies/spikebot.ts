@@ -99,7 +99,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         logger.info(`[SpikeBot] ${symbol} - Price: ${latestPrice}, MA: ${state.currentMA.toFixed(market.ask_token.precision)}`);
 
         // 3. Fetch open orders (filtered to this instance's tracked IDs)
-        const allTracked = [...state.spikeOrders, ...state.takeProfitOrders];
+        const allTracked = [...state.spikeOrders, ...state.takeProfitOrders, ...state.heldRecoveryOrders];
         const trackedIds = new Set<string>(
           allTracked.map(o => o.orderId).filter((id): id is string => id !== undefined)
         );
@@ -317,6 +317,32 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
         if (tpOrdersChanged) {
           state.takeProfitOrders = adjustedTP;
+        }
+
+        // 5d. Held recovery — fill detection.
+        // Orders that were moved to heldRecoveryOrders earlier in this cycle were NOT
+        // cancelled, so they remain in openOrders and will not falsely register as filled.
+        if (state.heldRecoveryOrders.length > 0) {
+          const surviving: TrackedOrder[] = [];
+          for (const tracked of state.heldRecoveryOrders) {
+            const stillOpen = tracked.orderId
+              ? openOrders.find(o => o.order_id === tracked.orderId)
+              : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
+
+            if (!stillOpen) {
+              const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+              logger.info(`[SpikeBot] Held recovery ${sideStr} filled at ${tracked.price} for ${symbol}`);
+              events.orderFilled(`[SpikeBot] Held recovery ${sideStr} filled at ${tracked.price}`, {
+                market: symbol,
+                side: sideStr,
+                quantity: tracked.quantity,
+                price: tracked.price,
+              });
+            } else {
+              surviving.push(tracked);
+            }
+          }
+          state.heldRecoveryOrders = surviving;
         }
 
         // After hold-in-place: exclude held order IDs from openOrders so that

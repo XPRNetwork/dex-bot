@@ -361,6 +361,39 @@ describe('SpikeBotStrategy', () => {
       expect(state.heldRecoveryOrders[0].heldSince).toBeDefined();
     });
 
+    it('fills held recovery when price returns', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 0.95, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 0.91, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-held-1', entryPrice: 0.90, cyclesSincePlace: 20,
+        originalTargetPrice: 1.0, heldSince: '2026-04-11T23:09:21Z',
+      }];
+      state.lastOrderMA = 0.95;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.95);
+      // held order no longer present — it filled
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+
+      const { events } = await import('../../src/events');
+      vi.mocked(events.orderFilled).mockClear();
+
+      await strategy.trade();
+
+      expect(state.heldRecoveryOrders.length).toBe(0);
+      expect(events.orderFilled).toHaveBeenCalledWith(
+        expect.stringContaining('Held recovery SELL filled'),
+        expect.objectContaining({ market: 'XMT_XMD', side: 'SELL', price: 0.91 }),
+      );
+    });
+
     it('resumes spike order placement after abandonment', async () => {
       await strategy.initialize({
         maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
