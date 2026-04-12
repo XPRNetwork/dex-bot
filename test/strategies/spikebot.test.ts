@@ -394,7 +394,7 @@ describe('SpikeBotStrategy', () => {
       );
     });
 
-    it('resumes spike order placement after abandonment', async () => {
+    it('places new spike orders while a held recovery exists', async () => {
       await strategy.initialize({
         maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
         pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
@@ -403,6 +403,7 @@ describe('SpikeBotStrategy', () => {
       warmUpMA(strategy, 0.85, 10);
       const state = (strategy as any).pairStates[0];
 
+      // Start with one TP that will be held this cycle
       state.spikeOrders = [];
       state.takeProfitOrders = [{
         orderSide: 2, price: 0.91, quantity: 20, marketSymbol: 'XMT_XMD',
@@ -417,23 +418,24 @@ describe('SpikeBotStrategy', () => {
 
       await strategy.trade();
 
-      // After abandonment, takeProfitOrders is empty, spikeOrders is empty
+      // After hold: TP moved to heldRecoveryOrders; takeProfitOrders is empty.
+      // New spike orders are placed same-cycle because the placement gate only
+      // checks spikeOrders + takeProfitOrders (held orders do not block placement).
       expect(state.takeProfitOrders.length).toBe(0);
-      expect(state.spikeOrders.length).toBe(0);
+      expect(state.heldRecoveryOrders.length).toBe(1);
+      expect(state.spikeOrders.length).toBeGreaterThan(0);
 
-      // Next cycle — fresh placement should happen
-      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.85);
-      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
-      vi.mocked(cancelOrder).mockClear();
-
+      // Held order remains live across the next cycle and new spikes stay in place.
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 0.91, order_side: 2 },
+      ]);
       const { prepareLimitOrder } = await import('../../src/dexrpc');
       vi.mocked(prepareLimitOrder).mockClear();
 
       await strategy.trade();
 
-      // Should place new spike orders
-      expect(prepareLimitOrder).toHaveBeenCalled();
-      expect(state.spikeOrders.length).toBeGreaterThan(0);
+      expect(state.heldRecoveryOrders.length).toBe(1);
+      expect(state.heldRecoveryOrders[0].orderId).toBe('tp-1');
     });
 
     it('preserves held recovery across MA-drift rebalance', async () => {
