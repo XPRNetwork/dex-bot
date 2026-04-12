@@ -59,9 +59,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         for (const order of persisted) {
           const pairState = this.pairStates.find(s => s.config.symbol === order.marketSymbol);
           if (!pairState) continue;
-          // We stored a _type marker to distinguish spike vs take-profit
-          if ((order as any)._type === 'takeProfit') {
+          const type = (order as any)._type;
+          if (type === 'takeProfit') {
             pairState.takeProfitOrders.push(order);
+          } else if (type === 'held') {
+            pairState.heldRecoveryOrders.push(order);
           } else {
             pairState.spikeOrders.push(order);
           }
@@ -420,6 +422,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
       }
       for (const o of state.takeProfitOrders) {
         allTracked.push({ ...o, _type: 'takeProfit' });
+      }
+      for (const o of state.heldRecoveryOrders) {
+        allTracked.push({ ...o, _type: 'held' });
       }
     }
     this.saveTrackedOrders('spikebot', allTracked as TrackedOrder[]);

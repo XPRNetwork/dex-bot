@@ -475,6 +475,50 @@ describe('SpikeBotStrategy', () => {
       expect(state.heldRecoveryOrders.length).toBe(1);
       expect(state.heldRecoveryOrders[0].orderId).toBe('tp-held');
     });
+
+    it('persists and restores held recovery across restart', async () => {
+      // First strategy instance — seed state and trigger persistence
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 0.85, 10);
+      const state = (strategy as any).pairStates[0];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 0.91, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-held', entryPrice: 0.90, cyclesSincePlace: 20,
+        originalTargetPrice: 1.0, heldSince: '2026-04-11T23:09:21Z',
+      }];
+
+      const savedOrders: any[] = [];
+      (strategy as any).saveTrackedOrders = vi.fn((_name: string, orders: any[]) => {
+        savedOrders.push(...orders);
+      });
+      (strategy as any).persistAllTrackedOrders();
+
+      expect(savedOrders.length).toBe(1);
+      expect(savedOrders[0]._type).toBe('held');
+      expect(savedOrders[0].orderId).toBe('tp-held');
+      expect(savedOrders[0].heldSince).toBe('2026-04-11T23:09:21Z');
+
+      // Second strategy instance — restore from persisted data
+      const strategy2 = new SpikeBotStrategy();
+      (strategy2 as any).dexAPI = mockDexAPI;
+      (strategy2 as any).username = 'testuser';
+      (strategy2 as any).loadTrackedOrders = vi.fn(() => savedOrders);
+
+      await strategy2.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      const state2 = (strategy2 as any).pairStates[0];
+      expect(state2.heldRecoveryOrders.length).toBe(1);
+      expect(state2.heldRecoveryOrders[0].orderId).toBe('tp-held');
+      expect(state2.heldRecoveryOrders[0].heldSince).toBe('2026-04-11T23:09:21Z');
+      expect(state2.takeProfitOrders.length).toBe(0);
+      expect(state2.spikeOrders.length).toBe(0);
+    });
   });
 
   describe('Config initialization', () => {
