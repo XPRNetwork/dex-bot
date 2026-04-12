@@ -521,6 +521,97 @@ describe('SpikeBotStrategy', () => {
     });
   });
 
+  describe('Breakdown metrics', () => {
+    it('publishes breakdown on orderStateEntry', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 0.85, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.76, quantity: 26.32, marketSymbol: 'XMT_XMD', orderId: 's-1',
+      }];
+      // Patience (cycles <= maxReboundCycles=5)
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 0.88, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-p', entryPrice: 0.86, cyclesSincePlace: 2, originalTargetPrice: 0.88,
+      }];
+      // Adjusting (cycles > maxReboundCycles)
+      state.takeProfitOrders.push({
+        orderSide: 2, price: 0.89, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-a', entryPrice: 0.87, cyclesSincePlace: 10, originalTargetPrice: 0.90,
+      });
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 0.91, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-h', entryPrice: 0.90, cyclesSincePlace: 20,
+        originalTargetPrice: 1.0, heldSince: '2026-04-11T23:09:21Z',
+      }];
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.85);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.76, order_side: 1 },
+        { order_id: 'tp-p', price: 0.88, order_side: 2 },
+        { order_id: 'tp-a', price: 0.89, order_side: 2 },
+        { order_id: 'tp-h', price: 0.91, order_side: 2 },
+      ]);
+
+      const writeOrderStateSpy = vi.fn();
+      (strategy as any).writeOrderState = writeOrderStateSpy;
+
+      await strategy.trade();
+
+      expect(writeOrderStateSpy).toHaveBeenCalledOnce();
+      const [[entries]] = writeOrderStateSpy.mock.calls;
+      expect(entries).toHaveLength(1);
+      const breakdown = entries[0].breakdown;
+      expect(breakdown).toBeDefined();
+      expect(breakdown.spike).toBe(1);
+      expect(breakdown.patience).toBe(1);
+      expect(breakdown.adjusting).toBe(1);
+      expect(breakdown.held).toBe(1);
+      // avgEntry weighted by quantity: (0.86*20 + 0.87*20 + 0.90*20) / 60 = 0.876667
+      expect(breakdown.avgEntryPrice).toBeCloseTo(0.8766666, 4);
+      // notional = 0.88*20 + 0.89*20 + 0.91*20 = 53.6 (spike excluded)
+      expect(breakdown.notionalLocked).toBeCloseTo(53.6, 4);
+      // drift = (currentMA 0.85 - avgEntry 0.876667) / 0.876667 * 100 ≈ -3.042%
+      expect(breakdown.entryDriftPct).toBeCloseTo(-3.042, 2);
+    });
+
+    it('returns null avg/drift when no recovery or held orders exist', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 0.85, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.76, quantity: 26.32, marketSymbol: 'XMT_XMD', orderId: 's-1',
+      }];
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.85);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.76, order_side: 1 },
+      ]);
+
+      const writeOrderStateSpy = vi.fn();
+      (strategy as any).writeOrderState = writeOrderStateSpy;
+
+      await strategy.trade();
+
+      const [[entries]] = writeOrderStateSpy.mock.calls;
+      const breakdown = entries[0].breakdown;
+      expect(breakdown.spike).toBe(1);
+      expect(breakdown.patience).toBe(0);
+      expect(breakdown.adjusting).toBe(0);
+      expect(breakdown.held).toBe(0);
+      expect(breakdown.avgEntryPrice).toBeNull();
+      expect(breakdown.entryDriftPct).toBeNull();
+      expect(breakdown.notionalLocked).toBe(0);
+    });
+  });
+
   describe('Config initialization', () => {
     it('uses provided maxReboundCycles and reboundStepPct', async () => {
       await strategy.initialize({

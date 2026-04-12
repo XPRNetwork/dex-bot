@@ -107,16 +107,51 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         );
         const openOrders = await this.getOwnOpenOrders(symbol, trackedIds);
 
-        const recoveryOrders: import('./base').RecoveryOrderState[] = state.takeProfitOrders
-          .filter(o => o.entryPrice !== undefined && o.cyclesSincePlace !== undefined)
-          .map(o => ({
-            side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
-            price: o.price,
-            entryPrice: o.entryPrice!,
-            originalTargetPrice: o.originalTargetPrice ?? o.price,
-            cyclesSincePlace: o.cyclesSincePlace!,
-            phase: (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience') as 'patience' | 'adjusting',
-          }));
+        const recoveryForState: import('./base').RecoveryOrderState[] = [
+          ...state.takeProfitOrders
+            .filter(o => o.entryPrice !== undefined && o.cyclesSincePlace !== undefined)
+            .map(o => ({
+              side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+              price: o.price,
+              entryPrice: o.entryPrice!,
+              originalTargetPrice: o.originalTargetPrice ?? o.price,
+              cyclesSincePlace: o.cyclesSincePlace!,
+              phase: (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience') as 'patience' | 'adjusting' | 'held',
+            })),
+          ...state.heldRecoveryOrders
+            .filter(o => o.entryPrice !== undefined)
+            .map(o => ({
+              side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+              price: o.price,
+              entryPrice: o.entryPrice!,
+              originalTargetPrice: o.originalTargetPrice ?? o.price,
+              cyclesSincePlace: o.cyclesSincePlace ?? 0,
+              phase: 'held' as const,
+              heldSince: o.heldSince,
+            })),
+        ];
+
+        const recoveryPool = [...state.takeProfitOrders, ...state.heldRecoveryOrders];
+        const totalQty = recoveryPool.reduce((s, o) => s + o.quantity, 0);
+        const weightedEntrySum = recoveryPool.reduce(
+          (s, o) => s + (o.entryPrice ?? 0) * o.quantity, 0,
+        );
+        const avgEntryPrice = totalQty > 0 && weightedEntrySum > 0
+          ? weightedEntrySum / totalQty
+          : null;
+        const entryDriftPct = avgEntryPrice !== null
+          ? (state.currentMA - avgEntryPrice) / avgEntryPrice * 100
+          : null;
+        const notionalLocked = recoveryPool.reduce(
+          (s, o) => s + o.price * o.quantity, 0,
+        );
+
+        const patienceCount = state.takeProfitOrders.filter(
+          o => (o.cyclesSincePlace ?? 0) <= this.maxReboundCycles,
+        ).length;
+        const adjustingCount = state.takeProfitOrders.filter(
+          o => (o.cyclesSincePlace ?? 0) > this.maxReboundCycles,
+        ).length;
 
         orderStateEntries.push({
           symbol,
@@ -124,7 +159,16 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           expectedOrders: state.takeProfitOrders.length > 0
             ? state.takeProfitOrders.length
             : state.config.levels * 2,
-          recoveryOrders: recoveryOrders.length > 0 ? recoveryOrders : undefined,
+          recoveryOrders: recoveryForState.length > 0 ? recoveryForState : undefined,
+          breakdown: {
+            spike: state.spikeOrders.length,
+            patience: patienceCount,
+            adjusting: adjustingCount,
+            held: state.heldRecoveryOrders.length,
+            avgEntryPrice,
+            entryDriftPct,
+            notionalLocked,
+          },
         });
 
         // Snapshot take-profit orders before step 4 so that newly placed TPs
