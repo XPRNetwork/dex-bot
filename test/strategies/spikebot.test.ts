@@ -329,7 +329,7 @@ describe('SpikeBotStrategy', () => {
       expect(state.heldRecoveryOrders[0].heldSince).toBeDefined();
     });
 
-    it('abandons BUY take-profit when adjusted price would cross entry price', async () => {
+    it('holds BUY take-profit when adjusted price would cross entry price', async () => {
       await strategy.initialize({
         maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
         pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
@@ -354,8 +354,11 @@ describe('SpikeBotStrategy', () => {
 
       await strategy.trade();
 
-      expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+      expect(cancelOrder).not.toHaveBeenCalledWith('tp-1');
       expect(state.takeProfitOrders.length).toBe(0);
+      expect(state.heldRecoveryOrders.length).toBe(1);
+      expect(state.heldRecoveryOrders[0].orderId).toBe('tp-1');
+      expect(state.heldRecoveryOrders[0].heldSince).toBeDefined();
     });
 
     it('resumes spike order placement after abandonment', async () => {

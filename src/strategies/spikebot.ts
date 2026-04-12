@@ -212,7 +212,6 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // 5c. Tiered recovery — Phase 2: gradual adjustment after patience expires
         const adjustedTP: TrackedOrder[] = [];
         let tpOrdersChanged = false;
-        let tpAbandoned = false;
 
         for (const tracked of state.takeProfitOrders) {
           if (
@@ -255,25 +254,17 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               continue;
             }
             if (tracked.orderSide === ORDERSIDES.BUY && candidatePrice >= tracked.entryPrice) {
-              // Would buy at or above what we sold for — abandon
-              if (tracked.orderId) {
-                try {
-                  await dexrpc.cancelOrder(String(tracked.orderId));
-                  await dexrpc.withdrawAll();
-                  await delay(2000);
-                } catch (error) {
-                  logger.error(`[SpikeBot] Failed to cancel abandoned TP ${tracked.orderId}: ${(error as Error).message}`);
-                }
-              }
-              logger.info(`[SpikeBot] Abandoning BUY take-profit for ${symbol}: adjusted price ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}. Resuming spike orders.`);
-              events.orderCancelled(`[SpikeBot] Abandoned BUY TP — would cross entry price`, {
+              tracked.heldSince = new Date().toISOString();
+              state.heldRecoveryOrders.push(tracked);
+              logger.info(`[SpikeBot] Holding BUY take-profit for ${symbol} at ${currentPrice.toFixed(market.ask_token.precision)} — next step ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}`);
+              events.orderHeld(`[SpikeBot] Held BUY TP at ${currentPrice.toFixed(market.ask_token.precision)} — would cross entry`, {
                 market: symbol,
+                side: 'BUY',
+                price: currentPrice,
                 entryPrice: tracked.entryPrice,
-                lastTargetPrice: currentPrice,
                 candidatePrice,
               });
               tpOrdersChanged = true;
-              tpAbandoned = true;
               continue;
             }
 
@@ -352,8 +343,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         }
 
         // 7. Initial placement (no tracked spike orders & MA ready)
-        // Skip placement if a TP was abandoned this cycle — resume on the next cycle
-        if (!tpAbandoned && state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
+        if (state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           // Skip if we just rebalanced (orders already cancelled in step 6)
           if (!rebalanced && activeOpenOrders.length > 0) {
