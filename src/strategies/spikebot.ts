@@ -21,6 +21,7 @@ interface PairState {
   lastOrderMA: number;
   spikeOrders: TrackedOrder[];
   takeProfitOrders: TrackedOrder[];
+  heldRecoveryOrders: TrackedOrder[];
 }
 
 /**
@@ -48,6 +49,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         lastOrderMA: 0,
         spikeOrders: [],
         takeProfitOrders: [],
+        heldRecoveryOrders: [],
       }));
 
       // Recover tracked orders from disk
