@@ -13,6 +13,7 @@ export interface TrackedOrder extends TradeOrder {
     entryPrice?: number;         // spike fill price (hard floor for TP adjustment)
     cyclesSincePlace?: number;   // trade cycles this TP has been open
     originalTargetPrice?: number; // MA at time of TP placement
+    heldSince?: string;          // ISO timestamp set when TP moves to heldRecoveryOrders
 }
 
 export interface MockTrackedOrder extends TrackedOrder {

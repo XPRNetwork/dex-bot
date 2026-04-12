@@ -8,6 +8,7 @@ export type EventType =
   | 'order_placed'
   | 'order_filled'
   | 'order_cancelled'
+  | 'order_held'
   | 'order_failed'
   | 'bot_started'
   | 'bot_stopped'
@@ -199,6 +200,10 @@ class EventEmitter {
 
   orderCancelled(message: string, data?: Record<string, unknown>): void {
     this.emit('order', 'order_cancelled', 'info', message, data);
+  }
+
+  orderHeld(message: string, data?: Record<string, unknown>): void {
+    this.emit('order', 'order_held', 'info', message, data);
   }
 
   orderFailed(message: string, data?: Record<string, unknown>): void {

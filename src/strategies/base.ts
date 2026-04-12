@@ -15,7 +15,18 @@ export interface RecoveryOrderState {
   entryPrice: number;
   originalTargetPrice: number;
   cyclesSincePlace: number;
-  phase: 'patience' | 'adjusting';
+  phase: 'patience' | 'adjusting' | 'held';
+  heldSince?: string;
+}
+
+export interface SpikeBotBreakdown {
+  spike: number;
+  patience: number;
+  adjusting: number;
+  held: number;
+  avgEntryPrice: number | null;
+  entryDriftPct: number | null;
+  notionalLocked: number;
 }
 
 export interface OrderStateEntry {
@@ -23,6 +34,7 @@ export interface OrderStateEntry {
   orders: OrderHistory[];
   expectedOrders: number;
   recoveryOrders?: RecoveryOrderState[];
+  breakdown?: SpikeBotBreakdown;
 }
 
 export interface MarketDetails {
@@ -303,6 +315,9 @@ export abstract class TradingStrategyBase implements TradingStrategy {
           expectedOrders: entry.expectedOrders,
           ...(entry.recoveryOrders && entry.recoveryOrders.length > 0 && {
             recoveryOrders: entry.recoveryOrders,
+          }),
+          ...(entry.breakdown && {
+            breakdown: entry.breakdown,
           }),
         };
       });

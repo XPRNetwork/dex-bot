@@ -21,6 +21,7 @@ interface PairState {
   lastOrderMA: number;
   spikeOrders: TrackedOrder[];
   takeProfitOrders: TrackedOrder[];
+  heldRecoveryOrders: TrackedOrder[];
 }
 
 /**
@@ -48,6 +49,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         lastOrderMA: 0,
         spikeOrders: [],
         takeProfitOrders: [],
+        heldRecoveryOrders: [],
       }));
 
       // Recover tracked orders from disk
@@ -57,9 +59,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         for (const order of persisted) {
           const pairState = this.pairStates.find(s => s.config.symbol === order.marketSymbol);
           if (!pairState) continue;
-          // We stored a _type marker to distinguish spike vs take-profit
-          if ((order as any)._type === 'takeProfit') {
+          const type = (order as any)._type;
+          if (type === 'takeProfit') {
             pairState.takeProfitOrders.push(order);
+          } else if (type === 'held') {
+            pairState.heldRecoveryOrders.push(order);
           } else {
             pairState.spikeOrders.push(order);
           }
@@ -97,22 +101,56 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         logger.info(`[SpikeBot] ${symbol} - Price: ${latestPrice}, MA: ${state.currentMA.toFixed(market.ask_token.precision)}`);
 
         // 3. Fetch open orders (filtered to this instance's tracked IDs)
-        const allTracked = [...state.spikeOrders, ...state.takeProfitOrders];
+        const allTracked = [...state.spikeOrders, ...state.takeProfitOrders, ...state.heldRecoveryOrders];
         const trackedIds = new Set<string>(
           allTracked.map(o => o.orderId).filter((id): id is string => id !== undefined)
         );
         const openOrders = await this.getOwnOpenOrders(symbol, trackedIds);
 
-        const recoveryOrders: import('./base').RecoveryOrderState[] = state.takeProfitOrders
-          .filter(o => o.entryPrice !== undefined && o.cyclesSincePlace !== undefined)
-          .map(o => ({
-            side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
-            price: o.price,
-            entryPrice: o.entryPrice!,
-            originalTargetPrice: o.originalTargetPrice ?? o.price,
-            cyclesSincePlace: o.cyclesSincePlace!,
-            phase: (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience') as 'patience' | 'adjusting',
-          }));
+        const recoveryForState: import('./base').RecoveryOrderState[] = [
+          ...state.takeProfitOrders
+            .filter(o => o.entryPrice !== undefined && o.cyclesSincePlace !== undefined)
+            .map(o => ({
+              side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+              price: o.price,
+              entryPrice: o.entryPrice!,
+              originalTargetPrice: o.originalTargetPrice ?? o.price,
+              cyclesSincePlace: o.cyclesSincePlace!,
+              phase: (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience') as 'patience' | 'adjusting' | 'held',
+            })),
+          ...state.heldRecoveryOrders
+            .filter(o => o.entryPrice !== undefined)
+            .map(o => ({
+              side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+              price: o.price,
+              entryPrice: o.entryPrice!,
+              originalTargetPrice: o.originalTargetPrice ?? o.price,
+              cyclesSincePlace: o.cyclesSincePlace ?? 0,
+              phase: 'held' as const,
+              heldSince: o.heldSince,
+            })),
+        ];
+
+        const recoveryPool = [...state.takeProfitOrders, ...state.heldRecoveryOrders];
+        const notionalLocked = recoveryPool.reduce(
+          (s, o) => s + o.price * o.quantity, 0,
+        );
+
+        const entryPool = recoveryPool.filter(o => o.entryPrice !== undefined);
+        const entryQty = entryPool.reduce((s, o) => s + o.quantity, 0);
+        const avgEntryPrice = entryQty > 0
+          ? entryPool.reduce((s, o) => s + o.entryPrice! * o.quantity, 0) / entryQty
+          : null;
+        const entryDriftPct = avgEntryPrice !== null
+          ? (state.currentMA - avgEntryPrice) / avgEntryPrice * 100
+          : null;
+
+        const patienceCount = state.takeProfitOrders.filter(
+          o => (o.cyclesSincePlace ?? 0) <= this.maxReboundCycles,
+        ).length;
+        const adjustingCount = state.takeProfitOrders.filter(
+          o => (o.cyclesSincePlace ?? 0) > this.maxReboundCycles,
+        ).length;
 
         orderStateEntries.push({
           symbol,
@@ -120,7 +158,16 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           expectedOrders: state.takeProfitOrders.length > 0
             ? state.takeProfitOrders.length
             : state.config.levels * 2,
-          recoveryOrders: recoveryOrders.length > 0 ? recoveryOrders : undefined,
+          recoveryOrders: recoveryForState.length > 0 ? recoveryForState : undefined,
+          breakdown: {
+            spike: state.spikeOrders.length,
+            patience: patienceCount,
+            adjusting: adjustingCount,
+            held: state.heldRecoveryOrders.length,
+            avgEntryPrice,
+            entryDriftPct,
+            notionalLocked,
+          },
         });
 
         // Snapshot take-profit orders before step 4 so that newly placed TPs
@@ -210,7 +257,6 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // 5c. Tiered recovery — Phase 2: gradual adjustment after patience expires
         const adjustedTP: TrackedOrder[] = [];
         let tpOrdersChanged = false;
-        let tpAbandoned = false;
 
         for (const tracked of state.takeProfitOrders) {
           if (
@@ -237,49 +283,33 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               candidatePrice = currentPrice + (currentPrice * this.reboundStepPct / 100);
             }
 
-            // Hard floor check: never cross entry price (would create a loss)
+            // Hard floor check: never cross entry price — hold in place instead of cancelling
             if (tracked.orderSide === ORDERSIDES.SELL && candidatePrice <= tracked.entryPrice) {
-              // Would sell at or below what we bought for — abandon
-              if (tracked.orderId) {
-                try {
-                  await dexrpc.cancelOrder(String(tracked.orderId));
-                  await dexrpc.withdrawAll();
-                  await delay(2000);
-                } catch (error) {
-                  logger.error(`[SpikeBot] Failed to cancel abandoned TP ${tracked.orderId}: ${(error as Error).message}`);
-                }
-              }
-              logger.info(`[SpikeBot] Abandoning SELL take-profit for ${symbol}: adjusted price ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}. Resuming spike orders.`);
-              events.orderCancelled(`[SpikeBot] Abandoned SELL TP — would cross entry price`, {
+              tracked.heldSince = new Date().toISOString();
+              state.heldRecoveryOrders.push(tracked);
+              logger.info(`[SpikeBot] Holding SELL take-profit for ${symbol} at ${currentPrice.toFixed(market.ask_token.precision)} — next step ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}`);
+              events.orderHeld(`[SpikeBot] Held SELL TP at ${currentPrice.toFixed(market.ask_token.precision)} — would cross entry`, {
                 market: symbol,
+                side: 'SELL',
+                price: currentPrice,
                 entryPrice: tracked.entryPrice,
-                lastTargetPrice: currentPrice,
                 candidatePrice,
               });
               tpOrdersChanged = true;
-              tpAbandoned = true;
               continue;
             }
             if (tracked.orderSide === ORDERSIDES.BUY && candidatePrice >= tracked.entryPrice) {
-              // Would buy at or above what we sold for — abandon
-              if (tracked.orderId) {
-                try {
-                  await dexrpc.cancelOrder(String(tracked.orderId));
-                  await dexrpc.withdrawAll();
-                  await delay(2000);
-                } catch (error) {
-                  logger.error(`[SpikeBot] Failed to cancel abandoned TP ${tracked.orderId}: ${(error as Error).message}`);
-                }
-              }
-              logger.info(`[SpikeBot] Abandoning BUY take-profit for ${symbol}: adjusted price ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}. Resuming spike orders.`);
-              events.orderCancelled(`[SpikeBot] Abandoned BUY TP — would cross entry price`, {
+              tracked.heldSince = new Date().toISOString();
+              state.heldRecoveryOrders.push(tracked);
+              logger.info(`[SpikeBot] Holding BUY take-profit for ${symbol} at ${currentPrice.toFixed(market.ask_token.precision)} — next step ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}`);
+              events.orderHeld(`[SpikeBot] Held BUY TP at ${currentPrice.toFixed(market.ask_token.precision)} — would cross entry`, {
                 market: symbol,
+                side: 'BUY',
+                price: currentPrice,
                 entryPrice: tracked.entryPrice,
-                lastTargetPrice: currentPrice,
                 candidatePrice,
               });
               tpOrdersChanged = true;
-              tpAbandoned = true;
               continue;
             }
 
@@ -334,13 +364,46 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           state.takeProfitOrders = adjustedTP;
         }
 
+        // 5d. Held recovery — fill detection.
+        // Orders that were moved to heldRecoveryOrders earlier in this cycle were NOT
+        // cancelled, so they remain in openOrders and will not falsely register as filled.
+        if (state.heldRecoveryOrders.length > 0) {
+          const surviving: TrackedOrder[] = [];
+          for (const tracked of state.heldRecoveryOrders) {
+            const stillOpen = tracked.orderId
+              ? openOrders.find(o => o.order_id === tracked.orderId)
+              : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
+
+            if (!stillOpen) {
+              const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+              logger.info(`[SpikeBot] Held recovery ${sideStr} filled at ${tracked.price} for ${symbol}`);
+              events.orderFilled(`[SpikeBot] Held recovery ${sideStr} filled at ${tracked.price}`, {
+                market: symbol,
+                side: sideStr,
+                quantity: tracked.quantity,
+                price: tracked.price,
+              });
+            } else {
+              surviving.push(tracked);
+            }
+          }
+          state.heldRecoveryOrders = surviving;
+        }
+
+        // After hold-in-place: exclude held order IDs from openOrders so that
+        // steps 6 and 7 do not attempt to cancel on-chain orders we intentionally kept live.
+        const heldIds = new Set(state.heldRecoveryOrders.map(o => o.orderId).filter(Boolean));
+        const activeOpenOrders = heldIds.size > 0
+          ? openOrders.filter(o => !heldIds.has(String(o.order_id)))
+          : openOrders;
+
         // 6. MA drift check - rebalance if MA shifted beyond threshold
         let rebalanced = false;
         if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
             logger.info(`[SpikeBot] ${symbol} MA drift ${driftPct.toFixed(2)}% exceeds threshold ${this.rebalanceThresholdPct}% - rebalancing`);
-            await this.cancelPairOrders(symbol, openOrders);
+            await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
             state.spikeOrders = [];
@@ -351,13 +414,12 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         }
 
         // 7. Initial placement (no tracked spike orders & MA ready)
-        // Skip placement if a TP was abandoned this cycle — resume on the next cycle
-        if (!tpAbandoned && state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
+        if (state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           // Skip if we just rebalanced (orders already cancelled in step 6)
-          if (!rebalanced && openOrders.length > 0) {
-            logger.info(`[SpikeBot] ${symbol} clearing ${openOrders.length} stale orders before fresh placement`);
-            await this.cancelPairOrders(symbol, openOrders);
+          if (!rebalanced && activeOpenOrders.length > 0) {
+            logger.info(`[SpikeBot] ${symbol} clearing ${activeOpenOrders.length} stale orders before fresh placement`);
+            await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
           }
@@ -386,7 +448,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
   async cancelOwnOrders(): Promise<void> {
     const allTracked: TrackedOrder[] = [];
     for (const state of this.pairStates) {
-      allTracked.push(...state.spikeOrders, ...state.takeProfitOrders);
+      allTracked.push(...state.spikeOrders, ...state.takeProfitOrders, ...state.heldRecoveryOrders);
     }
     if (allTracked.length > 0) {
       logger.info(`[SpikeBot] Cancelling ${allTracked.length} tracked orders on shutdown`);
@@ -403,6 +465,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
       }
       for (const o of state.takeProfitOrders) {
         allTracked.push({ ...o, _type: 'takeProfit' });
+      }
+      for (const o of state.heldRecoveryOrders) {
+        allTracked.push({ ...o, _type: 'held' });
       }
     }
     this.saveTrackedOrders('spikebot', allTracked as TrackedOrder[]);
