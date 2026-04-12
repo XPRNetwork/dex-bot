@@ -239,27 +239,19 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               candidatePrice = currentPrice + (currentPrice * this.reboundStepPct / 100);
             }
 
-            // Hard floor check: never cross entry price (would create a loss)
+            // Hard floor check: never cross entry price — hold in place instead of cancelling
             if (tracked.orderSide === ORDERSIDES.SELL && candidatePrice <= tracked.entryPrice) {
-              // Would sell at or below what we bought for — abandon
-              if (tracked.orderId) {
-                try {
-                  await dexrpc.cancelOrder(String(tracked.orderId));
-                  await dexrpc.withdrawAll();
-                  await delay(2000);
-                } catch (error) {
-                  logger.error(`[SpikeBot] Failed to cancel abandoned TP ${tracked.orderId}: ${(error as Error).message}`);
-                }
-              }
-              logger.info(`[SpikeBot] Abandoning SELL take-profit for ${symbol}: adjusted price ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}. Resuming spike orders.`);
-              events.orderCancelled(`[SpikeBot] Abandoned SELL TP — would cross entry price`, {
+              tracked.heldSince = new Date().toISOString();
+              state.heldRecoveryOrders.push(tracked);
+              logger.info(`[SpikeBot] Holding SELL take-profit for ${symbol} at ${currentPrice.toFixed(market.ask_token.precision)} — next step ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}`);
+              events.orderHeld(`[SpikeBot] Held SELL TP at ${currentPrice.toFixed(market.ask_token.precision)} — would cross entry`, {
                 market: symbol,
+                side: 'SELL',
+                price: currentPrice,
                 entryPrice: tracked.entryPrice,
-                lastTargetPrice: currentPrice,
                 candidatePrice,
               });
               tpOrdersChanged = true;
-              tpAbandoned = true;
               continue;
             }
             if (tracked.orderSide === ORDERSIDES.BUY && candidatePrice >= tracked.entryPrice) {
@@ -336,13 +328,20 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           state.takeProfitOrders = adjustedTP;
         }
 
+        // After hold-in-place: exclude held order IDs from openOrders so that
+        // steps 6 and 7 do not attempt to cancel on-chain orders we intentionally kept live.
+        const heldIds = new Set(state.heldRecoveryOrders.map(o => o.orderId).filter(Boolean));
+        const activeOpenOrders = heldIds.size > 0
+          ? openOrders.filter(o => !heldIds.has(String(o.order_id)))
+          : openOrders;
+
         // 6. MA drift check - rebalance if MA shifted beyond threshold
         let rebalanced = false;
         if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
             logger.info(`[SpikeBot] ${symbol} MA drift ${driftPct.toFixed(2)}% exceeds threshold ${this.rebalanceThresholdPct}% - rebalancing`);
-            await this.cancelPairOrders(symbol, openOrders);
+            await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
             state.spikeOrders = [];
@@ -357,9 +356,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         if (!tpAbandoned && state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           // Skip if we just rebalanced (orders already cancelled in step 6)
-          if (!rebalanced && openOrders.length > 0) {
-            logger.info(`[SpikeBot] ${symbol} clearing ${openOrders.length} stale orders before fresh placement`);
-            await this.cancelPairOrders(symbol, openOrders);
+          if (!rebalanced && activeOpenOrders.length > 0) {
+            logger.info(`[SpikeBot] ${symbol} clearing ${activeOpenOrders.length} stale orders before fresh placement`);
+            await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
           }

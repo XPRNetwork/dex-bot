@@ -13,6 +13,7 @@ vi.mock('../../src/utils', () => ({
 vi.mock('../../src/events', () => ({
   events: {
     orderPlaced: vi.fn(), orderFilled: vi.fn(), orderCancelled: vi.fn(),
+    orderHeld: vi.fn(),
     botError: vi.fn(), gridPlaced: vi.fn(), gridAdjusted: vi.fn(), initialize: vi.fn(),
   },
 }));
@@ -294,8 +295,8 @@ describe('SpikeBotStrategy', () => {
     });
   });
 
-  describe('Tiered recovery: Phase 3 — Abandonment', () => {
-    it('abandons SELL take-profit when adjusted price would cross entry price', async () => {
+  describe('Tiered recovery: Phase 3 — Hold in place', () => {
+    it('holds SELL take-profit when adjusted price would cross entry price', async () => {
       await strategy.initialize({
         maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
         pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
@@ -320,9 +321,12 @@ describe('SpikeBotStrategy', () => {
 
       await strategy.trade();
 
-      // TP should be cancelled and removed
-      expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+      // TP should be moved to held, NOT cancelled
+      expect(cancelOrder).not.toHaveBeenCalledWith('tp-1');
       expect(state.takeProfitOrders.length).toBe(0);
+      expect(state.heldRecoveryOrders.length).toBe(1);
+      expect(state.heldRecoveryOrders[0].orderId).toBe('tp-1');
+      expect(state.heldRecoveryOrders[0].heldSince).toBeDefined();
     });
 
     it('abandons BUY take-profit when adjusted price would cross entry price', async () => {
