@@ -76,6 +76,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
   }
 
   async trade(): Promise<void> {
+    await this.processCommands();
     const orderStateEntries: OrderStateEntry[] = [];
 
     for (const state of this.pairStates) {

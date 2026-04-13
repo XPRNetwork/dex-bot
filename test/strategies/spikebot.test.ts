@@ -962,4 +962,95 @@ describe('SpikeBotStrategy', () => {
       expect(s2.heldRecoveryOrders).toHaveLength(0);
     });
   });
+
+  describe('command queue integration', () => {
+    let tmpDir: string;
+    beforeEach(() => {
+      tmpDir = fsNode.mkdtempSync(pathNode.join(osNode.tmpdir(), 'cmdint-'));
+      process.env.ORDER_STATE_DIR = tmpDir;
+      process.env.DASHBOARD_INSTANCE_ID = 'inst-int';
+    });
+    afterEach(() => {
+      delete process.env.ORDER_STATE_DIR;
+      delete process.env.DASHBOARD_INSTANCE_ID;
+      fsNode.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('executes queued clear_held command at cycle start and writes result', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'h-q',
+        entryPrice: 0.9, cyclesSincePlace: 10, heldSince: 'x',
+      }];
+      state.takeProfitOrders = [];
+      state.spikeOrders = [];
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'h-q', price: 1.05, order_side: 2 },
+      ]);
+
+      const cmdPath = pathNode.join(tmpDir, 'inst-int-commands.jsonl');
+      const resultsPath = pathNode.join(tmpDir, 'inst-int-command-results.jsonl');
+      fsNode.writeFileSync(cmdPath, JSON.stringify({
+        id: 'q1', type: 'clear_held', marketSymbol: 'XMT_XMD', issuedAt: 't',
+      }) + '\n');
+
+      await strategy.trade();
+
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      // Commands file should be gone (either removed or empty after processing)
+      const cmdFileExists = fsNode.existsSync(cmdPath);
+      if (cmdFileExists) {
+        expect(fsNode.readFileSync(cmdPath, 'utf-8').trim()).toBe('');
+      }
+      // Processing sidecar should also be gone
+      expect(fsNode.existsSync(cmdPath + '.processing')).toBe(false);
+      const results = fsNode.readFileSync(resultsPath, 'utf-8').trim().split('\n');
+      expect(results).toHaveLength(1);
+      const r = JSON.parse(results[0]);
+      expect(r.id).toBe('q1');
+      expect(r.status).toBe('ok');
+    });
+
+    it('picks up leftover .processing sidecar from a crashed prior cycle', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'h-q2',
+        entryPrice: 0.9, cyclesSincePlace: 10, heldSince: 'x',
+      }];
+      state.takeProfitOrders = [];
+      state.spikeOrders = [];
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'h-q2', price: 1.05, order_side: 2 },
+      ]);
+
+      const cmdPath = pathNode.join(tmpDir, 'inst-int-commands.jsonl');
+      const processingPath = cmdPath + '.processing';
+      const resultsPath = pathNode.join(tmpDir, 'inst-int-command-results.jsonl');
+      // Simulate a crash: sidecar left behind from a prior cycle
+      fsNode.writeFileSync(processingPath, JSON.stringify({
+        id: 'q-prev', type: 'clear_held', marketSymbol: 'XMT_XMD', issuedAt: 't',
+      }) + '\n');
+
+      await strategy.trade();
+
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      expect(fsNode.existsSync(processingPath)).toBe(false);
+      const results = fsNode.readFileSync(resultsPath, 'utf-8').trim().split('\n');
+      expect(results[0]).toContain('q-prev');
+    });
+  });
 });
