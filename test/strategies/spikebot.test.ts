@@ -744,4 +744,54 @@ describe('SpikeBotStrategy', () => {
       expect(state.lastCancelReason.reason).toMatch(/drift|rebalance/i);
     });
   });
+
+  describe('spikeTrigger propagation', () => {
+    it('sets spikeTrigger on spike orders at placement', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.spikeOrders.length).toBeGreaterThan(0);
+      for (const o of state.spikeOrders) {
+        expect(o.spikeTrigger).toBeDefined();
+        expect(o.spikeTrigger.price).toBe(1.0);
+        expect(typeof o.spikeTrigger.at).toBe('string');
+      }
+    });
+
+    it('propagates spikeTrigger from filled spike onto its TP', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: '2026-04-12T00:00:00Z' },
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike filled
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(1);
+      const tp = state.takeProfitOrders[0];
+      expect(tp.spikeTrigger).toEqual({ price: 1.0, at: '2026-04-12T00:00:00Z' });
+    });
+  });
 });

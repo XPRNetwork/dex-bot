@@ -203,6 +203,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               (tpOrder as any).entryPrice = tracked.price;
               (tpOrder as any).cyclesSincePlace = 0;
               (tpOrder as any).originalTargetPrice = state.currentMA;
+              (tpOrder as any).spikeTrigger = tracked.spikeTrigger;
               newOrders.push(tpOrder);
             } else {
               remainingSpike.push(tracked);
@@ -212,7 +213,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           if (newOrders.length > 0) {
             await this.placeOrders(newOrders);
             const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
-            state.takeProfitOrders.push(...resolvedTP);
+            const withTrigger = resolvedTP.map((r, i) => ({
+              ...r,
+              spikeTrigger: (newOrders[i] as any).spikeTrigger,
+            }));
+            state.takeProfitOrders.push(...withTrigger);
           }
           state.spikeOrders = remainingSpike;
         }
@@ -434,8 +439,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           const spikeOrders = this.buildSpikeOrders(symbol, state.currentMA, state.config, market);
           if (spikeOrders.length > 0) {
             logger.info(`[SpikeBot] ${symbol} placing ${spikeOrders.length} spike orders around MA ${state.currentMA.toFixed(market.ask_token.precision)}`);
+            const trigger = { price: state.currentMA, at: new Date().toISOString() };
             await this.placeOrders(spikeOrders);
-            state.spikeOrders = await this.resolveOrderIds(spikeOrders, symbol);
+            const resolved = await this.resolveOrderIds(spikeOrders, symbol);
+            state.spikeOrders = resolved.map(o => ({ ...o, spikeTrigger: { ...trigger } }));
             state.lastOrderMA = state.currentMA;
           }
         }
