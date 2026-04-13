@@ -24,6 +24,7 @@ interface PairState {
   takeProfitOrders: TrackedOrder[];
   heldRecoveryOrders: TrackedOrder[];
   lastCancelReason?: { reason: string; at: string };
+  reconciledOnStartup?: boolean;
 }
 
 /**
@@ -109,6 +110,29 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           allTracked.map(o => o.orderId).filter((id): id is string => id !== undefined)
         );
         const openOrders = await this.getOwnOpenOrders(symbol, trackedIds);
+
+        // Startup reconciliation: drop persisted tracked orders that are no longer on-chain.
+        // Without this, step 4 below would treat a missing tracked order as "filled" and
+        // synthesize a phantom TP — which is wrong when the order was actually cancelled
+        // (e.g. by a prior cancelOwnOrders on clean shutdown, or a hard kill without cleanup).
+        if (!state.reconciledOnStartup) {
+          const openIds = new Set(openOrders.map(o => String(o.order_id)));
+          const isLive = (o: TrackedOrder) => !!o.orderId && openIds.has(String(o.orderId));
+          const spikeBefore = state.spikeOrders.length;
+          const tpBefore = state.takeProfitOrders.length;
+          const heldBefore = state.heldRecoveryOrders.length;
+          state.spikeOrders = state.spikeOrders.filter(isLive);
+          state.takeProfitOrders = state.takeProfitOrders.filter(isLive);
+          state.heldRecoveryOrders = state.heldRecoveryOrders.filter(isLive);
+          const dropped = (spikeBefore - state.spikeOrders.length)
+            + (tpBefore - state.takeProfitOrders.length)
+            + (heldBefore - state.heldRecoveryOrders.length);
+          if (dropped > 0) {
+            logger.info(`[SpikeBot] ${symbol} reconcile on startup: dropped ${dropped} stale tracked order(s) not found on-chain`);
+            this.persistAllTrackedOrders();
+          }
+          state.reconciledOnStartup = true;
+        }
 
         const mapTpEntry = (o: TrackedOrder, phase: 'patience' | 'adjusting'): import('./base').RecoveryOrderState => ({
           orderId: o.orderId,
