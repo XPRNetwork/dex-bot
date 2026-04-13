@@ -34,6 +34,7 @@ const mockDexAPI = createMockDexAPI();
 import { SpikeBotStrategy } from '../../src/strategies/spikebot';
 import { cancelOrder, withdrawAll } from '../../src/dexrpc';
 import type { TrackedOrder } from '../../src/interfaces';
+import type { BotCommand } from '../../src/strategies/command-queue';
 
 describe('SpikeBotStrategy', () => {
   let strategy: SpikeBotStrategy;
@@ -849,6 +850,116 @@ describe('SpikeBotStrategy', () => {
       const tp = state.takeProfitOrders[0];
       expect(tp.adjustmentHistory).toHaveLength(2);
       expect(tp.adjustmentHistory[1].reason).toBe('tier-bump');
+    });
+  });
+
+  describe('handleCommand', () => {
+    async function setupWithOrders() {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 's-1',
+      }];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.1, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'tp-1',
+        entryPrice: 0.9, cyclesSincePlace: 0,
+      }];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'h-1',
+        entryPrice: 0.9, cyclesSincePlace: 10, heldSince: 'h-t',
+      }];
+      return state;
+    }
+
+    it('clear_held cancels held orders and empties the bucket', async () => {
+      const state = await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c1', type: 'clear_held', marketSymbol: 'XMT_XMD', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+
+      expect(result.status).toBe('ok');
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(cancelOrder).toHaveBeenCalledWith('h-1');
+    });
+
+    it('clear_non_held cancels spike + TP, leaves held alone', async () => {
+      const state = await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c2', type: 'clear_non_held', marketSymbol: 'XMT_XMD', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+
+      expect(result.status).toBe('ok');
+      expect(state.spikeOrders).toHaveLength(0);
+      expect(state.takeProfitOrders).toHaveLength(0);
+      expect(state.heldRecoveryOrders).toHaveLength(1);
+      expect(cancelOrder).toHaveBeenCalledWith('s-1');
+      expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+    });
+
+    it('cancel_order removes a specific order from its bucket', async () => {
+      const state = await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c3', type: 'cancel_order', marketSymbol: 'XMT_XMD', orderId: 'h-1', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+
+      expect(result.status).toBe('ok');
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      expect(cancelOrder).toHaveBeenCalledWith('h-1');
+    });
+
+    it('returns skipped for unknown market', async () => {
+      await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c4', type: 'clear_held', marketSymbol: 'UNKNOWN_MARKET', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+      expect(result.status).toBe('skipped');
+    });
+
+    it('returns skipped for unknown order id', async () => {
+      await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c5', type: 'cancel_order', marketSymbol: 'XMT_XMD', orderId: 'nope', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+      expect(result.status).toBe('skipped');
+    });
+
+    it('returns error for unknown type', async () => {
+      await setupWithOrders();
+      const cmd = { id: 'c6', type: 'bogus', issuedAt: 't' } as unknown as BotCommand;
+      const result = await (strategy as any).handleCommand(cmd);
+      expect(result.status).toBe('error');
+    });
+
+    it('applies clear_held across all markets when marketSymbol omitted', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [
+          { symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 },
+          { symbol: 'XPR_XUSDC', deviationPct: 10, levels: 1, orderAmount: 20 },
+        ],
+      });
+      const [s1, s2] = (strategy as any).pairStates;
+      s1.heldRecoveryOrders = [{
+        orderSide: 2, price: 1, quantity: 1, marketSymbol: 'XMT_XMD', orderId: 'h-a',
+      }];
+      s2.heldRecoveryOrders = [{
+        orderSide: 2, price: 1, quantity: 1, marketSymbol: 'XPR_XUSDC', orderId: 'h-b',
+      }];
+      const cmd: BotCommand = { id: 'c7', type: 'clear_held', issuedAt: 't' };
+      const result = await (strategy as any).handleCommand(cmd);
+      expect(result.status).toBe('ok');
+      expect(s1.heldRecoveryOrders).toHaveLength(0);
+      expect(s2.heldRecoveryOrders).toHaveLength(0);
     });
   });
 });

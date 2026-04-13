@@ -7,6 +7,7 @@ import { TradingStrategyBase, OrderStateEntry } from './base';
 import * as dexrpc from '../dexrpc';
 import { events } from '../events';
 import { Market } from '@proton/wrap-constants';
+import type { BotCommand, BotCommandResult } from './command-queue';
 
 const logger = getLogger();
 
@@ -476,6 +477,87 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
       await this.cancelTrackedOrders(allTracked);
     }
     this.cleanupTrackedOrdersFile();
+  }
+
+  public async handleCommand(cmd: BotCommand): Promise<BotCommandResult> {
+    const appliedAt = new Date().toISOString();
+    try {
+      if (cmd.type === 'cancel_order') {
+        return await this.handleCancelOrder(cmd, appliedAt);
+      }
+      if (cmd.type === 'clear_held') {
+        return await this.handleClearBucket(cmd, 'held', appliedAt);
+      }
+      if (cmd.type === 'clear_non_held') {
+        return await this.handleClearBucket(cmd, 'non-held', appliedAt);
+      }
+      return { id: cmd.id, status: 'error', message: `unknown type: ${cmd.type}`, appliedAt };
+    } catch (err) {
+      return {
+        id: cmd.id, status: 'error',
+        message: (err as Error).message ?? 'unknown error', appliedAt,
+      };
+    }
+  }
+
+  private async handleCancelOrder(cmd: BotCommand, appliedAt: string): Promise<BotCommandResult> {
+    if (!cmd.orderId) {
+      return { id: cmd.id, status: 'error', message: 'orderId required', appliedAt };
+    }
+    const states = cmd.marketSymbol
+      ? this.pairStates.filter(s => s.config.symbol === cmd.marketSymbol)
+      : this.pairStates;
+    for (const state of states) {
+      for (const bucket of ['spikeOrders', 'takeProfitOrders', 'heldRecoveryOrders'] as const) {
+        const idx = state[bucket].findIndex(o => o.orderId === cmd.orderId);
+        if (idx >= 0) {
+          const [order] = state[bucket].splice(idx, 1);
+          order.cancelReason = 'manual cancel via dashboard';
+          this.setLastCancelReason(state, `manual cancel ${cmd.orderId}`);
+          await this.cancelTrackedOrders([order]);
+          this.persistAllTrackedOrders();
+          return { id: cmd.id, status: 'ok', appliedAt };
+        }
+      }
+    }
+    return { id: cmd.id, status: 'skipped', message: 'order not found', appliedAt };
+  }
+
+  private async handleClearBucket(
+    cmd: BotCommand, kind: 'held' | 'non-held', appliedAt: string,
+  ): Promise<BotCommandResult> {
+    const states = cmd.marketSymbol
+      ? this.pairStates.filter(s => s.config.symbol === cmd.marketSymbol)
+      : this.pairStates;
+    if (cmd.marketSymbol && states.length === 0) {
+      return { id: cmd.id, status: 'skipped', message: `unknown market: ${cmd.marketSymbol}`, appliedAt };
+    }
+    let totalCancelled = 0;
+    for (const state of states) {
+      if (kind === 'held') {
+        const toCancel = [...state.heldRecoveryOrders];
+        if (toCancel.length === 0) continue;
+        for (const o of toCancel) o.cancelReason = 'manual clear_held';
+        this.setLastCancelReason(state, `manual clear_held (${toCancel.length})`);
+        await this.cancelTrackedOrders(toCancel);
+        state.heldRecoveryOrders = [];
+        totalCancelled += toCancel.length;
+      } else {
+        const toCancel = [...state.spikeOrders, ...state.takeProfitOrders];
+        if (toCancel.length === 0) continue;
+        for (const o of toCancel) o.cancelReason = 'manual clear_non_held';
+        this.setLastCancelReason(state, `manual clear_non_held (${toCancel.length})`);
+        await this.cancelTrackedOrders(toCancel);
+        state.spikeOrders = [];
+        state.takeProfitOrders = [];
+        totalCancelled += toCancel.length;
+      }
+    }
+    this.persistAllTrackedOrders();
+    return {
+      id: cmd.id, status: 'ok', appliedAt,
+      message: `cancelled ${totalCancelled} orders`,
+    };
   }
 
   private persistAllTrackedOrders(): void {
