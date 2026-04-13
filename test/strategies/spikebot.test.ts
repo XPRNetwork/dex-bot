@@ -59,6 +59,9 @@ describe('SpikeBotStrategy', () => {
     state.priceHistory = Array(window).fill(price);
     state.currentMA = price;
     state.lastOrderMA = price;
+    // A warmed-up MA implies the bot has been running for the window; reconciliation
+    // has already happened. Tests that simulate cold-start must explicitly unset.
+    state.reconciledOnStartup = true;
   }
 
   describe('Bug fix: MA drift check during take-profit phase', () => {
@@ -1115,6 +1118,97 @@ describe('SpikeBotStrategy', () => {
         expect(tp.orderSide).toBe(2);
         expect(tp.price).toBe(1.0);
       }
+    });
+  });
+
+  describe('startup reconciliation', () => {
+    it('drops persisted tracked orders that are no longer on-chain on first cycle (no phantom TPs)', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      // Simulate a cold-start with loaded-from-disk tracked orders (prior run's spikes)
+      state.reconciledOnStartup = false;
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'stale-buy' },
+        { orderSide: 2, price: 1.1, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'stale-sell' },
+      ];
+      state.takeProfitOrders = [];
+      state.heldRecoveryOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      // None of the tracked IDs are present on-chain
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      // Stale spikes were dropped, NOT treated as filled → no TPs synthesized
+      expect(state.takeProfitOrders).toHaveLength(0);
+      // Fresh spike orders may be placed (buckets now empty, step 7 runs) — that's fine
+      for (const o of state.spikeOrders) {
+        expect(['stale-buy', 'stale-sell']).not.toContain(o.orderId);
+      }
+    });
+
+    it('keeps persisted tracked orders that are still on-chain (hot restart)', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'live-buy' },
+      ];
+      state.takeProfitOrders = [];
+      state.heldRecoveryOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'live-buy', price: 0.9, order_side: 1 },
+      ]);
+
+      await strategy.trade();
+
+      // Live spike is preserved, no TP synthesized
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.spikeOrders[0].orderId).toBe('live-buy');
+      expect(state.takeProfitOrders).toHaveLength(0);
+    });
+
+    it('runs normal fill detection on second cycle (missing tracked order is treated as filled)', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'live-buy' },
+      ];
+      state.takeProfitOrders = [];
+      state.heldRecoveryOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      // First cycle: spike is on-chain → reconciliation keeps it
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValueOnce([
+        { order_id: 'live-buy', price: 0.9, order_side: 1 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.takeProfitOrders).toHaveLength(0);
+
+      // Second cycle: spike is gone (legitimate fill) → should be treated as filled → TP placed
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValueOnce([]);
+      await strategy.trade();
+
+      expect(state.spikeOrders).toHaveLength(0);
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(state.takeProfitOrders[0].orderSide).toBe(2); // SELL TP from BUY spike fill
     });
   });
 });
