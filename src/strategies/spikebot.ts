@@ -110,20 +110,27 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         );
         const openOrders = await this.getOwnOpenOrders(symbol, trackedIds);
 
+        const mapTpEntry = (o: TrackedOrder, phase: 'patience' | 'adjusting'): import('./base').RecoveryOrderState => ({
+          orderId: o.orderId,
+          side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+          price: o.price,
+          entryPrice: o.entryPrice!,
+          originalTargetPrice: o.originalTargetPrice ?? o.price,
+          cyclesSincePlace: o.cyclesSincePlace!,
+          phase,
+          adjustmentHistory: o.adjustmentHistory,
+          cancelReason: o.cancelReason,
+          spikeTrigger: o.spikeTrigger,
+        });
+
         const recoveryForState: import('./base').RecoveryOrderState[] = [
           ...state.takeProfitOrders
             .filter(o => o.entryPrice !== undefined && o.cyclesSincePlace !== undefined)
-            .map(o => ({
-              side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
-              price: o.price,
-              entryPrice: o.entryPrice!,
-              originalTargetPrice: o.originalTargetPrice ?? o.price,
-              cyclesSincePlace: o.cyclesSincePlace!,
-              phase: (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience') as 'patience' | 'adjusting' | 'held',
-            })),
+            .map(o => mapTpEntry(o, (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience'))),
           ...state.heldRecoveryOrders
             .filter(o => o.entryPrice !== undefined)
             .map(o => ({
+              orderId: o.orderId,
               side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
               price: o.price,
               entryPrice: o.entryPrice!,
@@ -131,6 +138,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               cyclesSincePlace: o.cyclesSincePlace ?? 0,
               phase: 'held' as const,
               heldSince: o.heldSince,
+              adjustmentHistory: o.adjustmentHistory,
+              cancelReason: o.cancelReason,
+              spikeTrigger: o.spikeTrigger,
             })),
         ];
 
@@ -171,6 +181,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             entryDriftPct,
             notionalLocked,
           },
+          lastCancelReason: state.lastCancelReason,
         });
 
         // Snapshot take-profit orders before step 4 so that newly placed TPs

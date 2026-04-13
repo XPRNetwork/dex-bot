@@ -10,7 +10,19 @@ import fs from 'fs';
 import path from 'path';
 import { readPending, appendResult, BotCommand, BotCommandResult } from './command-queue';
 
+export interface AdjustmentHistoryState {
+  price: number;
+  at: string;
+  reason: 'placed' | 'patience-expired' | 'tier-bump' | 'manual';
+}
+
+export interface SpikeTriggerState {
+  price: number;
+  at: string;
+}
+
 export interface RecoveryOrderState {
+  orderId?: string;
   side: 'BUY' | 'SELL';
   price: number;
   entryPrice: number;
@@ -18,6 +30,9 @@ export interface RecoveryOrderState {
   cyclesSincePlace: number;
   phase: 'patience' | 'adjusting' | 'held';
   heldSince?: string;
+  adjustmentHistory?: AdjustmentHistoryState[];
+  cancelReason?: string;
+  spikeTrigger?: SpikeTriggerState;
 }
 
 export interface SpikeBotBreakdown {
@@ -36,6 +51,7 @@ export interface OrderStateEntry {
   expectedOrders: number;
   recoveryOrders?: RecoveryOrderState[];
   breakdown?: SpikeBotBreakdown;
+  lastCancelReason?: { reason: string; at: string };
 }
 
 export interface MarketDetails {
@@ -399,9 +415,8 @@ export abstract class TradingStrategyBase implements TradingStrategy {
           ...(entry.recoveryOrders && entry.recoveryOrders.length > 0 && {
             recoveryOrders: entry.recoveryOrders,
           }),
-          ...(entry.breakdown && {
-            breakdown: entry.breakdown,
-          }),
+          ...(entry.breakdown && { breakdown: entry.breakdown }),
+          ...(entry.lastCancelReason && { lastCancelReason: entry.lastCancelReason }),
         };
       });
 
