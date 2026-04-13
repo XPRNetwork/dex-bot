@@ -213,9 +213,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           if (newOrders.length > 0) {
             await this.placeOrders(newOrders);
             const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
+            const now = new Date().toISOString();
             const withTrigger = resolvedTP.map((r, i) => ({
               ...r,
               spikeTrigger: (newOrders[i] as any).spikeTrigger,
+              adjustmentHistory: [{ price: r.price, at: now, reason: 'placed' as const }],
             }));
             state.takeProfitOrders.push(...withTrigger);
           }
@@ -348,6 +350,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               newTracked.entryPrice = tracked.entryPrice;
               newTracked.cyclesSincePlace = tracked.cyclesSincePlace;
               newTracked.originalTargetPrice = tracked.originalTargetPrice;
+              newTracked.spikeTrigger = tracked.spikeTrigger;
+              newTracked.adjustmentHistory = [
+                ...(tracked.adjustmentHistory ?? []),
+                { price: newTracked.price, at: new Date().toISOString(), reason: 'tier-bump' as const },
+              ];
               adjustedTP.push(newTracked);
             }
 

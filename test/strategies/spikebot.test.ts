@@ -794,4 +794,61 @@ describe('SpikeBotStrategy', () => {
       expect(tp.spikeTrigger).toEqual({ price: 1.0, at: '2026-04-12T00:00:00Z' });
     });
   });
+
+  describe('adjustmentHistory tracking', () => {
+    it('appends a placed entry when a TP is first placed from a filled spike', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' },
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike filled
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      const tp = state.takeProfitOrders[0];
+      expect(tp.adjustmentHistory).toHaveLength(1);
+      expect(tp.adjustmentHistory[0].reason).toBe('placed');
+      expect(tp.adjustmentHistory[0].price).toBe(tp.price);
+    });
+
+    it('appends a tier-bump entry when a TP is adjusted', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        maxReboundCycles: 1, reboundStepPct: 0.5,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.1, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 5,
+        originalTargetPrice: 1.1,
+        adjustmentHistory: [{ price: 1.1, at: 't0', reason: 'placed' }],
+      }];
+      state.lastOrderMA = 1.0;
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.1, order_side: 2 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `adj-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      const tp = state.takeProfitOrders[0];
+      expect(tp.adjustmentHistory).toHaveLength(2);
+      expect(tp.adjustmentHistory[1].reason).toBe('tier-bump');
+    });
+  });
 });
