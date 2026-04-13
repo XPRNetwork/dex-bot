@@ -718,4 +718,30 @@ describe('SpikeBotStrategy', () => {
       await expect((s as any).wipeStateFiles()).resolves.toBeUndefined();
     });
   });
+
+  describe('lastCancelReason tracking', () => {
+    it('sets lastCancelReason when rebalance cancels orders', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.priceHistory = Array(9).fill(1.06);
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 's-1',
+      }];
+      state.takeProfitOrders = [];
+      state.lastOrderMA = 1.0;
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.9, order_side: 1 },
+      ]);
+
+      await strategy.trade();
+
+      expect(state.lastCancelReason).toBeDefined();
+      expect(state.lastCancelReason.reason).toMatch(/drift|rebalance/i);
+    });
+  });
 });

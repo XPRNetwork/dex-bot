@@ -22,6 +22,7 @@ interface PairState {
   spikeOrders: TrackedOrder[];
   takeProfitOrders: TrackedOrder[];
   heldRecoveryOrders: TrackedOrder[];
+  lastCancelReason?: { reason: string; at: string };
 }
 
 /**
@@ -316,6 +317,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             // Cancel old order, place new one at adjusted price
             if (tracked.orderId) {
               try {
+                tracked.cancelReason = `tier-bump cycle ${tracked.cyclesSincePlace}`;
+                this.setLastCancelReason(state, `TP adjustment ${tracked.price} → ${candidatePrice}`);
                 await dexrpc.cancelOrder(String(tracked.orderId));
                 await dexrpc.withdrawAll();
                 await delay(2000);
@@ -402,7 +405,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
-            logger.info(`[SpikeBot] ${symbol} MA drift ${driftPct.toFixed(2)}% exceeds threshold ${this.rebalanceThresholdPct}% - rebalancing`);
+            const reason = `MA drift ${driftPct.toFixed(2)}% exceeds threshold — rebalancing`;
+            logger.info(`[SpikeBot] ${symbol} ${reason}`);
+            this.setLastCancelReason(state, reason);
             await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
@@ -418,7 +423,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           // Skip if we just rebalanced (orders already cancelled in step 6)
           if (!rebalanced && activeOpenOrders.length > 0) {
-            logger.info(`[SpikeBot] ${symbol} clearing ${activeOpenOrders.length} stale orders before fresh placement`);
+            const reason = `clearing ${activeOpenOrders.length} stale orders before fresh placement`;
+            logger.info(`[SpikeBot] ${symbol} ${reason}`);
+            this.setLastCancelReason(state, reason);
             await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
@@ -471,6 +478,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
       }
     }
     this.saveTrackedOrders('spikebot', allTracked as TrackedOrder[]);
+  }
+
+  private setLastCancelReason(state: PairState, reason: string): void {
+    state.lastCancelReason = { reason, at: new Date().toISOString() };
   }
 
   private async cancelPairOrders(symbol: string, openOrders: { order_id: string | number }[]): Promise<void> {
