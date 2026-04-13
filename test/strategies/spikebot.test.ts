@@ -1053,4 +1053,68 @@ describe('SpikeBotStrategy', () => {
       expect(results[0]).toContain('q-prev');
     });
   });
+
+  describe('same-cycle TP collision avoidance', () => {
+    it('offsets opposing-side TPs placed from same-cycle fills so they do not self-match', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 's-buy' },
+        { orderSide: 2, price: 1.1, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 's-sell' },
+      ];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // both spikes filled
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(2);
+      const buyTp = state.takeProfitOrders.find((o: any) => o.orderSide === 1);
+      const sellTp = state.takeProfitOrders.find((o: any) => o.orderSide === 2);
+      expect(buyTp).toBeDefined();
+      expect(sellTp).toBeDefined();
+      // Must NOT be at the same price
+      expect(buyTp.price).not.toBe(sellTp.price);
+      // SELL TP bumped up one tick (ask precision 6), BUY TP bumped down one tick
+      expect(sellTp.price).toBeCloseTo(1.000001, 6);
+      expect(buyTp.price).toBeCloseTo(0.999999, 6);
+      // originalTargetPrice preserved as the intended MA
+      expect(buyTp.originalTargetPrice).toBe(1.0);
+      expect(sellTp.originalTargetPrice).toBe(1.0);
+    });
+
+    it('leaves same-side TPs at the same price untouched (no collision)', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      // Two BUY spikes at different entries — both fill in one cycle
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 's-a' },
+        { orderSide: 1, price: 0.85, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 's-b' },
+      ];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(2);
+      // Both SELL TPs remain at MA=1.0 (same-side, no self-match risk)
+      for (const tp of state.takeProfitOrders) {
+        expect(tp.orderSide).toBe(2);
+        expect(tp.price).toBe(1.0);
+      }
+    });
+  });
 });
