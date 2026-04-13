@@ -1,5 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createMockDexAPI, createMockMarket } from '../helpers/mock-dexapi';
+import * as fsNode from 'fs';
+import * as pathNode from 'path';
+import * as osNode from 'os';
 
 vi.mock('../../src/utils', () => ({
   getLogger: () => ({ info: vi.fn(), error: vi.fn(), warn: vi.fn() }),
@@ -31,6 +34,7 @@ const mockDexAPI = createMockDexAPI();
 import { SpikeBotStrategy } from '../../src/strategies/spikebot';
 import { cancelOrder, withdrawAll } from '../../src/dexrpc';
 import type { TrackedOrder } from '../../src/interfaces';
+import type { BotCommand } from '../../src/strategies/command-queue';
 
 describe('SpikeBotStrategy', () => {
   let strategy: SpikeBotStrategy;
@@ -671,6 +675,382 @@ describe('SpikeBotStrategy', () => {
 
       expect((strategy as any).maxReboundCycles).toBe(20);
       expect((strategy as any).reboundStepPct).toBe(0.5);
+    });
+  });
+
+  describe('wipeStateFiles', () => {
+    let tmpDir: string;
+    let originalStateDir: string | undefined;
+    let originalInstanceId: string | undefined;
+
+    beforeEach(() => {
+      tmpDir = fsNode.mkdtempSync(pathNode.join(osNode.tmpdir(), 'wipe-'));
+      originalStateDir = process.env.ORDER_STATE_DIR;
+      originalInstanceId = process.env.DASHBOARD_INSTANCE_ID;
+      process.env.ORDER_STATE_DIR = tmpDir;
+      process.env.DASHBOARD_INSTANCE_ID = 'inst1';
+    });
+
+    afterEach(() => {
+      process.env.ORDER_STATE_DIR = originalStateDir;
+      process.env.DASHBOARD_INSTANCE_ID = originalInstanceId;
+      fsNode.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('deletes all four state files when present', async () => {
+      const files = [
+        'inst1-tracked.json',
+        'inst1-orders.json',
+        'inst1-commands.jsonl',
+        'inst1-command-results.jsonl',
+      ];
+      for (const f of files) {
+        fsNode.writeFileSync(pathNode.join(tmpDir, f), 'data');
+      }
+      const s = new SpikeBotStrategy();
+      await (s as any).wipeStateFiles();
+      for (const f of files) {
+        expect(fsNode.existsSync(pathNode.join(tmpDir, f))).toBe(false);
+      }
+    });
+
+    it('is a no-op when files are missing', async () => {
+      const s = new SpikeBotStrategy();
+      await expect((s as any).wipeStateFiles()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('lastCancelReason tracking', () => {
+    it('sets lastCancelReason when rebalance cancels orders', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.priceHistory = Array(9).fill(1.06);
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 's-1',
+      }];
+      state.takeProfitOrders = [];
+      state.lastOrderMA = 1.0;
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.9, order_side: 1 },
+      ]);
+
+      await strategy.trade();
+
+      expect(state.lastCancelReason).toBeDefined();
+      expect(state.lastCancelReason.reason).toMatch(/drift|rebalance/i);
+    });
+  });
+
+  describe('spikeTrigger propagation', () => {
+    it('sets spikeTrigger on spike orders at placement', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.spikeOrders.length).toBeGreaterThan(0);
+      for (const o of state.spikeOrders) {
+        expect(o.spikeTrigger).toBeDefined();
+        expect(o.spikeTrigger.price).toBe(1.0);
+        expect(typeof o.spikeTrigger.at).toBe('string');
+      }
+    });
+
+    it('propagates spikeTrigger from filled spike onto its TP', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: '2026-04-12T00:00:00Z' },
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike filled
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(1);
+      const tp = state.takeProfitOrders[0];
+      expect(tp.spikeTrigger).toEqual({ price: 1.0, at: '2026-04-12T00:00:00Z' });
+    });
+  });
+
+  describe('adjustmentHistory tracking', () => {
+    it('appends a placed entry when a TP is first placed from a filled spike', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' },
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike filled
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      const tp = state.takeProfitOrders[0];
+      expect(tp.adjustmentHistory).toHaveLength(1);
+      expect(tp.adjustmentHistory[0].reason).toBe('placed');
+      expect(tp.adjustmentHistory[0].price).toBe(tp.price);
+    });
+
+    it('appends a tier-bump entry when a TP is adjusted', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        maxReboundCycles: 1, reboundStepPct: 0.5,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.1, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 5,
+        originalTargetPrice: 1.1,
+        adjustmentHistory: [{ price: 1.1, at: 't0', reason: 'placed' }],
+      }];
+      state.lastOrderMA = 1.0;
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.1, order_side: 2 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `adj-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      const tp = state.takeProfitOrders[0];
+      expect(tp.adjustmentHistory).toHaveLength(2);
+      expect(tp.adjustmentHistory[1].reason).toBe('tier-bump');
+    });
+  });
+
+  describe('handleCommand', () => {
+    async function setupWithOrders() {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 's-1',
+      }];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.1, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'tp-1',
+        entryPrice: 0.9, cyclesSincePlace: 0,
+      }];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'h-1',
+        entryPrice: 0.9, cyclesSincePlace: 10, heldSince: 'h-t',
+      }];
+      return state;
+    }
+
+    it('clear_held cancels held orders and empties the bucket', async () => {
+      const state = await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c1', type: 'clear_held', marketSymbol: 'XMT_XMD', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+
+      expect(result.status).toBe('ok');
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(cancelOrder).toHaveBeenCalledWith('h-1');
+    });
+
+    it('clear_non_held cancels spike + TP, leaves held alone', async () => {
+      const state = await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c2', type: 'clear_non_held', marketSymbol: 'XMT_XMD', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+
+      expect(result.status).toBe('ok');
+      expect(state.spikeOrders).toHaveLength(0);
+      expect(state.takeProfitOrders).toHaveLength(0);
+      expect(state.heldRecoveryOrders).toHaveLength(1);
+      expect(cancelOrder).toHaveBeenCalledWith('s-1');
+      expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+    });
+
+    it('cancel_order removes a specific order from its bucket', async () => {
+      const state = await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c3', type: 'cancel_order', marketSymbol: 'XMT_XMD', orderId: 'h-1', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+
+      expect(result.status).toBe('ok');
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      expect(cancelOrder).toHaveBeenCalledWith('h-1');
+    });
+
+    it('returns skipped for unknown market', async () => {
+      await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c4', type: 'clear_held', marketSymbol: 'UNKNOWN_MARKET', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+      expect(result.status).toBe('skipped');
+    });
+
+    it('returns skipped for unknown order id', async () => {
+      await setupWithOrders();
+      const cmd: BotCommand = {
+        id: 'c5', type: 'cancel_order', marketSymbol: 'XMT_XMD', orderId: 'nope', issuedAt: 't',
+      };
+      const result = await (strategy as any).handleCommand(cmd);
+      expect(result.status).toBe('skipped');
+    });
+
+    it('returns error for unknown type', async () => {
+      await setupWithOrders();
+      const cmd = { id: 'c6', type: 'bogus', issuedAt: 't' } as unknown as BotCommand;
+      const result = await (strategy as any).handleCommand(cmd);
+      expect(result.status).toBe('error');
+    });
+
+    it('applies clear_held across all markets when marketSymbol omitted', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [
+          { symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 },
+          { symbol: 'XPR_XUSDC', deviationPct: 10, levels: 1, orderAmount: 20 },
+        ],
+      });
+      const [s1, s2] = (strategy as any).pairStates;
+      s1.heldRecoveryOrders = [{
+        orderSide: 2, price: 1, quantity: 1, marketSymbol: 'XMT_XMD', orderId: 'h-a',
+      }];
+      s2.heldRecoveryOrders = [{
+        orderSide: 2, price: 1, quantity: 1, marketSymbol: 'XPR_XUSDC', orderId: 'h-b',
+      }];
+      const cmd: BotCommand = { id: 'c7', type: 'clear_held', issuedAt: 't' };
+      const result = await (strategy as any).handleCommand(cmd);
+      expect(result.status).toBe('ok');
+      expect(s1.heldRecoveryOrders).toHaveLength(0);
+      expect(s2.heldRecoveryOrders).toHaveLength(0);
+    });
+  });
+
+  describe('command queue integration', () => {
+    let tmpDir: string;
+    beforeEach(() => {
+      tmpDir = fsNode.mkdtempSync(pathNode.join(osNode.tmpdir(), 'cmdint-'));
+      process.env.ORDER_STATE_DIR = tmpDir;
+      process.env.DASHBOARD_INSTANCE_ID = 'inst-int';
+    });
+    afterEach(() => {
+      delete process.env.ORDER_STATE_DIR;
+      delete process.env.DASHBOARD_INSTANCE_ID;
+      fsNode.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('executes queued clear_held command at cycle start and writes result', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'h-q',
+        entryPrice: 0.9, cyclesSincePlace: 10, heldSince: 'x',
+      }];
+      state.takeProfitOrders = [];
+      state.spikeOrders = [];
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'h-q', price: 1.05, order_side: 2 },
+      ]);
+
+      const cmdPath = pathNode.join(tmpDir, 'inst-int-commands.jsonl');
+      const resultsPath = pathNode.join(tmpDir, 'inst-int-command-results.jsonl');
+      fsNode.writeFileSync(cmdPath, JSON.stringify({
+        id: 'q1', type: 'clear_held', marketSymbol: 'XMT_XMD', issuedAt: 't',
+      }) + '\n');
+
+      await strategy.trade();
+
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      // Commands file should be gone (either removed or empty after processing)
+      const cmdFileExists = fsNode.existsSync(cmdPath);
+      if (cmdFileExists) {
+        expect(fsNode.readFileSync(cmdPath, 'utf-8').trim()).toBe('');
+      }
+      // Processing sidecar should also be gone
+      expect(fsNode.existsSync(cmdPath + '.processing')).toBe(false);
+      const results = fsNode.readFileSync(resultsPath, 'utf-8').trim().split('\n');
+      expect(results).toHaveLength(1);
+      const r = JSON.parse(results[0]);
+      expect(r.id).toBe('q1');
+      expect(r.status).toBe('ok');
+    });
+
+    it('picks up leftover .processing sidecar from a crashed prior cycle', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'h-q2',
+        entryPrice: 0.9, cyclesSincePlace: 10, heldSince: 'x',
+      }];
+      state.takeProfitOrders = [];
+      state.spikeOrders = [];
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'h-q2', price: 1.05, order_side: 2 },
+      ]);
+
+      const cmdPath = pathNode.join(tmpDir, 'inst-int-commands.jsonl');
+      const processingPath = cmdPath + '.processing';
+      const resultsPath = pathNode.join(tmpDir, 'inst-int-command-results.jsonl');
+      // Simulate a crash: sidecar left behind from a prior cycle
+      fsNode.writeFileSync(processingPath, JSON.stringify({
+        id: 'q-prev', type: 'clear_held', marketSymbol: 'XMT_XMD', issuedAt: 't',
+      }) + '\n');
+
+      await strategy.trade();
+
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      expect(fsNode.existsSync(processingPath)).toBe(false);
+      const results = fsNode.readFileSync(resultsPath, 'utf-8').trim().split('\n');
+      expect(results[0]).toContain('q-prev');
     });
   });
 });

@@ -7,6 +7,17 @@ export interface TradeOrder {
     marketSymbol: string;
 }
 
+export interface AdjustmentHistoryEntry {
+  price: number;
+  at: string;           // ISO timestamp
+  reason: 'placed' | 'patience-expired' | 'tier-bump' | 'manual';
+}
+
+export interface SpikeTrigger {
+  price: number;
+  at: string;           // ISO timestamp
+}
+
 export interface TrackedOrder extends TradeOrder {
     orderId?: string;    // on-chain order_id from the DEX
     placedAt?: string;   // ISO timestamp for debugging
@@ -14,6 +25,9 @@ export interface TrackedOrder extends TradeOrder {
     cyclesSincePlace?: number;   // trade cycles this TP has been open
     originalTargetPrice?: number; // MA at time of TP placement
     heldSince?: string;          // ISO timestamp set when TP moves to heldRecoveryOrders
+    adjustmentHistory?: AdjustmentHistoryEntry[]; // price changes over time
+    cancelReason?: string;        // set right before bot-initiated cancel
+    spikeTrigger?: SpikeTrigger;  // inherited from spike order that produced this TP
 }
 
 export interface MockTrackedOrder extends TrackedOrder {

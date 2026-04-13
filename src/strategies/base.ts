@@ -8,8 +8,21 @@ import { ORDERSIDES } from '../core/constants';
 import { events } from "../events";
 import fs from 'fs';
 import path from 'path';
+import { readPending, appendResult, BotCommand, BotCommandResult } from './command-queue';
+
+export interface AdjustmentHistoryState {
+  price: number;
+  at: string;
+  reason: 'placed' | 'patience-expired' | 'tier-bump' | 'manual';
+}
+
+export interface SpikeTriggerState {
+  price: number;
+  at: string;
+}
 
 export interface RecoveryOrderState {
+  orderId?: string;
   side: 'BUY' | 'SELL';
   price: number;
   entryPrice: number;
@@ -17,6 +30,9 @@ export interface RecoveryOrderState {
   cyclesSincePlace: number;
   phase: 'patience' | 'adjusting' | 'held';
   heldSince?: string;
+  adjustmentHistory?: AdjustmentHistoryState[];
+  cancelReason?: string;
+  spikeTrigger?: SpikeTriggerState;
 }
 
 export interface SpikeBotBreakdown {
@@ -35,6 +51,7 @@ export interface OrderStateEntry {
   expectedOrders: number;
   recoveryOrders?: RecoveryOrderState[];
   breakdown?: SpikeBotBreakdown;
+  lastCancelReason?: { reason: string; at: string };
 }
 
 export interface MarketDetails {
@@ -285,9 +302,91 @@ export abstract class TradingStrategyBase implements TradingStrategy {
     }
   }
 
+  protected async wipeStateFiles(): Promise<void> {
+    const stateDir = process.env.ORDER_STATE_DIR;
+    const instanceId = process.env.DASHBOARD_INSTANCE_ID;
+    if (!stateDir || !instanceId) return;
+    const names = [
+      `${instanceId}-tracked.json`,
+      `${instanceId}-orders.json`,
+      `${instanceId}-commands.jsonl`,
+      `${instanceId}-command-results.jsonl`,
+    ];
+    for (const name of names) {
+      const p = path.join(stateDir, name);
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch (error) {
+        baseLogger.warn(`Failed to wipe state file ${name}:`, error);
+      }
+    }
+  }
+
+  public async wipeState(): Promise<void> {
+    await this.wipeStateFiles();
+  }
+
   async cancelOwnOrders(): Promise<void> {
     // Default implementation — subclasses can override with specific tracked orders
     baseLogger.info('[Tracking] cancelOwnOrders called (base no-op)');
+  }
+
+  protected async processCommands(): Promise<void> {
+    const stateDir = process.env.ORDER_STATE_DIR;
+    const instanceId = process.env.DASHBOARD_INSTANCE_ID;
+    if (!stateDir || !instanceId) return;
+    const cmdPath = path.join(stateDir, `${instanceId}-commands.jsonl`);
+    const processingPath = cmdPath + '.processing';
+    const resultsPath = path.join(stateDir, `${instanceId}-command-results.jsonl`);
+
+    // Crash-recovery: if a .processing sidecar exists from a prior cycle, process it first.
+    // Otherwise, atomically move the commands file to the sidecar so new dashboard appends
+    // land in a fresh commands file for the next cycle.
+    let hasSidecar = fs.existsSync(processingPath);
+    if (!hasSidecar) {
+      if (!fs.existsSync(cmdPath)) return;
+      try {
+        fs.renameSync(cmdPath, processingPath);
+        hasSidecar = true;
+      } catch (err) {
+        baseLogger.warn('[Commands] Failed to move commands file to processing sidecar:', err);
+        return;
+      }
+    }
+
+    const pending = await readPending(processingPath);
+
+    const dispatcher = (this as unknown as {
+      handleCommand?: (cmd: BotCommand) => Promise<BotCommandResult>;
+    }).handleCommand;
+
+    for (const cmd of pending) {
+      let result: BotCommandResult;
+      if (typeof dispatcher === 'function') {
+        try {
+          result = await dispatcher.call(this, cmd);
+        } catch (err) {
+          result = {
+            id: cmd.id, status: 'error',
+            message: (err as Error).message ?? 'dispatch failed',
+            appliedAt: new Date().toISOString(),
+          };
+        }
+      } else {
+        result = {
+          id: cmd.id, status: 'error',
+          message: 'strategy does not support commands',
+          appliedAt: new Date().toISOString(),
+        };
+      }
+      await appendResult(resultsPath, result);
+    }
+
+    try {
+      fs.unlinkSync(processingPath);
+    } catch (err) {
+      baseLogger.warn('[Commands] Failed to remove processing sidecar:', err);
+    }
   }
 
   protected writeOrderState(entries: OrderStateEntry[]): void {
@@ -316,9 +415,8 @@ export abstract class TradingStrategyBase implements TradingStrategy {
           ...(entry.recoveryOrders && entry.recoveryOrders.length > 0 && {
             recoveryOrders: entry.recoveryOrders,
           }),
-          ...(entry.breakdown && {
-            breakdown: entry.breakdown,
-          }),
+          ...(entry.breakdown && { breakdown: entry.breakdown }),
+          ...(entry.lastCancelReason && { lastCancelReason: entry.lastCancelReason }),
         };
       });
 

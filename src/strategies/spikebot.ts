@@ -7,6 +7,7 @@ import { TradingStrategyBase, OrderStateEntry } from './base';
 import * as dexrpc from '../dexrpc';
 import { events } from '../events';
 import { Market } from '@proton/wrap-constants';
+import type { BotCommand, BotCommandResult } from './command-queue';
 
 const logger = getLogger();
 
@@ -22,6 +23,7 @@ interface PairState {
   spikeOrders: TrackedOrder[];
   takeProfitOrders: TrackedOrder[];
   heldRecoveryOrders: TrackedOrder[];
+  lastCancelReason?: { reason: string; at: string };
 }
 
 /**
@@ -74,6 +76,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
   }
 
   async trade(): Promise<void> {
+    await this.processCommands();
     const orderStateEntries: OrderStateEntry[] = [];
 
     for (const state of this.pairStates) {
@@ -107,20 +110,27 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         );
         const openOrders = await this.getOwnOpenOrders(symbol, trackedIds);
 
+        const mapTpEntry = (o: TrackedOrder, phase: 'patience' | 'adjusting'): import('./base').RecoveryOrderState => ({
+          orderId: o.orderId,
+          side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+          price: o.price,
+          entryPrice: o.entryPrice!,
+          originalTargetPrice: o.originalTargetPrice ?? o.price,
+          cyclesSincePlace: o.cyclesSincePlace!,
+          phase,
+          adjustmentHistory: o.adjustmentHistory,
+          cancelReason: o.cancelReason,
+          spikeTrigger: o.spikeTrigger,
+        });
+
         const recoveryForState: import('./base').RecoveryOrderState[] = [
           ...state.takeProfitOrders
             .filter(o => o.entryPrice !== undefined && o.cyclesSincePlace !== undefined)
-            .map(o => ({
-              side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
-              price: o.price,
-              entryPrice: o.entryPrice!,
-              originalTargetPrice: o.originalTargetPrice ?? o.price,
-              cyclesSincePlace: o.cyclesSincePlace!,
-              phase: (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience') as 'patience' | 'adjusting' | 'held',
-            })),
+            .map(o => mapTpEntry(o, (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience'))),
           ...state.heldRecoveryOrders
             .filter(o => o.entryPrice !== undefined)
             .map(o => ({
+              orderId: o.orderId,
               side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
               price: o.price,
               entryPrice: o.entryPrice!,
@@ -128,6 +138,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               cyclesSincePlace: o.cyclesSincePlace ?? 0,
               phase: 'held' as const,
               heldSince: o.heldSince,
+              adjustmentHistory: o.adjustmentHistory,
+              cancelReason: o.cancelReason,
+              spikeTrigger: o.spikeTrigger,
             })),
         ];
 
@@ -168,6 +181,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             entryDriftPct,
             notionalLocked,
           },
+          lastCancelReason: state.lastCancelReason,
         });
 
         // Snapshot take-profit orders before step 4 so that newly placed TPs
@@ -202,6 +216,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               (tpOrder as any).entryPrice = tracked.price;
               (tpOrder as any).cyclesSincePlace = 0;
               (tpOrder as any).originalTargetPrice = state.currentMA;
+              (tpOrder as any).spikeTrigger = tracked.spikeTrigger;
               newOrders.push(tpOrder);
             } else {
               remainingSpike.push(tracked);
@@ -211,7 +226,13 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           if (newOrders.length > 0) {
             await this.placeOrders(newOrders);
             const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
-            state.takeProfitOrders.push(...resolvedTP);
+            const now = new Date().toISOString();
+            const withTrigger = resolvedTP.map((r, i) => ({
+              ...r,
+              spikeTrigger: (newOrders[i] as any).spikeTrigger,
+              adjustmentHistory: [{ price: r.price, at: now, reason: 'placed' as const }],
+            }));
+            state.takeProfitOrders.push(...withTrigger);
           }
           state.spikeOrders = remainingSpike;
         }
@@ -316,6 +337,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             // Cancel old order, place new one at adjusted price
             if (tracked.orderId) {
               try {
+                tracked.cancelReason = `tier-bump cycle ${tracked.cyclesSincePlace}`;
+                this.setLastCancelReason(state, `TP adjustment ${tracked.price} → ${candidatePrice}`);
                 await dexrpc.cancelOrder(String(tracked.orderId));
                 await dexrpc.withdrawAll();
                 await delay(2000);
@@ -340,6 +363,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               newTracked.entryPrice = tracked.entryPrice;
               newTracked.cyclesSincePlace = tracked.cyclesSincePlace;
               newTracked.originalTargetPrice = tracked.originalTargetPrice;
+              newTracked.spikeTrigger = tracked.spikeTrigger;
+              newTracked.adjustmentHistory = [
+                ...(tracked.adjustmentHistory ?? []),
+                { price: newTracked.price, at: new Date().toISOString(), reason: 'tier-bump' as const },
+              ];
               adjustedTP.push(newTracked);
             }
 
@@ -402,7 +430,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
-            logger.info(`[SpikeBot] ${symbol} MA drift ${driftPct.toFixed(2)}% exceeds threshold ${this.rebalanceThresholdPct}% - rebalancing`);
+            const reason = `MA drift ${driftPct.toFixed(2)}% exceeds threshold — rebalancing`;
+            logger.info(`[SpikeBot] ${symbol} ${reason}`);
+            this.setLastCancelReason(state, reason);
             await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
@@ -418,7 +448,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           // Skip if we just rebalanced (orders already cancelled in step 6)
           if (!rebalanced && activeOpenOrders.length > 0) {
-            logger.info(`[SpikeBot] ${symbol} clearing ${activeOpenOrders.length} stale orders before fresh placement`);
+            const reason = `clearing ${activeOpenOrders.length} stale orders before fresh placement`;
+            logger.info(`[SpikeBot] ${symbol} ${reason}`);
+            this.setLastCancelReason(state, reason);
             await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
@@ -427,8 +459,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           const spikeOrders = this.buildSpikeOrders(symbol, state.currentMA, state.config, market);
           if (spikeOrders.length > 0) {
             logger.info(`[SpikeBot] ${symbol} placing ${spikeOrders.length} spike orders around MA ${state.currentMA.toFixed(market.ask_token.precision)}`);
+            const trigger = { price: state.currentMA, at: new Date().toISOString() };
             await this.placeOrders(spikeOrders);
-            state.spikeOrders = await this.resolveOrderIds(spikeOrders, symbol);
+            const resolved = await this.resolveOrderIds(spikeOrders, symbol);
+            state.spikeOrders = resolved.map(o => ({ ...o, spikeTrigger: { ...trigger } }));
             state.lastOrderMA = state.currentMA;
           }
         }
@@ -457,6 +491,87 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
     this.cleanupTrackedOrdersFile();
   }
 
+  public async handleCommand(cmd: BotCommand): Promise<BotCommandResult> {
+    const appliedAt = new Date().toISOString();
+    try {
+      if (cmd.type === 'cancel_order') {
+        return await this.handleCancelOrder(cmd, appliedAt);
+      }
+      if (cmd.type === 'clear_held') {
+        return await this.handleClearBucket(cmd, 'held', appliedAt);
+      }
+      if (cmd.type === 'clear_non_held') {
+        return await this.handleClearBucket(cmd, 'non-held', appliedAt);
+      }
+      return { id: cmd.id, status: 'error', message: `unknown type: ${cmd.type}`, appliedAt };
+    } catch (err) {
+      return {
+        id: cmd.id, status: 'error',
+        message: (err as Error).message ?? 'unknown error', appliedAt,
+      };
+    }
+  }
+
+  private async handleCancelOrder(cmd: BotCommand, appliedAt: string): Promise<BotCommandResult> {
+    if (!cmd.orderId) {
+      return { id: cmd.id, status: 'error', message: 'orderId required', appliedAt };
+    }
+    const states = cmd.marketSymbol
+      ? this.pairStates.filter(s => s.config.symbol === cmd.marketSymbol)
+      : this.pairStates;
+    for (const state of states) {
+      for (const bucket of ['spikeOrders', 'takeProfitOrders', 'heldRecoveryOrders'] as const) {
+        const idx = state[bucket].findIndex(o => o.orderId === cmd.orderId);
+        if (idx >= 0) {
+          const [order] = state[bucket].splice(idx, 1);
+          order.cancelReason = 'manual cancel via dashboard';
+          this.setLastCancelReason(state, `manual cancel ${cmd.orderId}`);
+          await this.cancelTrackedOrders([order]);
+          this.persistAllTrackedOrders();
+          return { id: cmd.id, status: 'ok', appliedAt };
+        }
+      }
+    }
+    return { id: cmd.id, status: 'skipped', message: 'order not found', appliedAt };
+  }
+
+  private async handleClearBucket(
+    cmd: BotCommand, kind: 'held' | 'non-held', appliedAt: string,
+  ): Promise<BotCommandResult> {
+    const states = cmd.marketSymbol
+      ? this.pairStates.filter(s => s.config.symbol === cmd.marketSymbol)
+      : this.pairStates;
+    if (cmd.marketSymbol && states.length === 0) {
+      return { id: cmd.id, status: 'skipped', message: `unknown market: ${cmd.marketSymbol}`, appliedAt };
+    }
+    let totalCancelled = 0;
+    for (const state of states) {
+      if (kind === 'held') {
+        const toCancel = [...state.heldRecoveryOrders];
+        if (toCancel.length === 0) continue;
+        for (const o of toCancel) o.cancelReason = 'manual clear_held';
+        this.setLastCancelReason(state, `manual clear_held (${toCancel.length})`);
+        await this.cancelTrackedOrders(toCancel);
+        state.heldRecoveryOrders = [];
+        totalCancelled += toCancel.length;
+      } else {
+        const toCancel = [...state.spikeOrders, ...state.takeProfitOrders];
+        if (toCancel.length === 0) continue;
+        for (const o of toCancel) o.cancelReason = 'manual clear_non_held';
+        this.setLastCancelReason(state, `manual clear_non_held (${toCancel.length})`);
+        await this.cancelTrackedOrders(toCancel);
+        state.spikeOrders = [];
+        state.takeProfitOrders = [];
+        totalCancelled += toCancel.length;
+      }
+    }
+    this.persistAllTrackedOrders();
+    return {
+      id: cmd.id, status: 'ok', appliedAt,
+      message: `cancelled ${totalCancelled} orders`,
+    };
+  }
+
   private persistAllTrackedOrders(): void {
     const allTracked: (TrackedOrder & { _type?: string })[] = [];
     for (const state of this.pairStates) {
@@ -471,6 +586,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
       }
     }
     this.saveTrackedOrders('spikebot', allTracked as TrackedOrder[]);
+  }
+
+  private setLastCancelReason(state: PairState, reason: string): void {
+    state.lastCancelReason = { reason, at: new Date().toISOString() };
   }
 
   private async cancelPairOrders(symbol: string, openOrders: { order_id: string | number }[]): Promise<void> {
