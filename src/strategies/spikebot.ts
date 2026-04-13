@@ -224,6 +224,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           }
 
           if (newOrders.length > 0) {
+            this.offsetMixedSideCollisions(newOrders, market);
             await this.placeOrders(newOrders);
             const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
             const now = new Date().toISOString();
@@ -609,6 +610,33 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
   private calculateMA(prices: number[]): number {
     return prices.reduce((sum, p) => sum + p, 0) / prices.length;
+  }
+
+  // When multiple spike orders fill in the same cycle, every TP is built at the
+  // current MA. Mixed-side TPs at one price cross on-chain and self-match. Bump
+  // SELL TPs up and BUY TPs down by one tick so the book sees separate levels.
+  // `originalTargetPrice` on the TrackedOrder keeps the un-offset MA as the
+  // recovery reference.
+  private offsetMixedSideCollisions(newOrders: TradeOrder[], market: Market): void {
+    const tick = Math.pow(10, -market.ask_token.precision);
+    const byPrice = new Map<number, TradeOrder[]>();
+    for (const o of newOrders) {
+      const group = byPrice.get(o.price);
+      if (group) group.push(o);
+      else byPrice.set(o.price, [o]);
+    }
+    for (const [, group] of byPrice) {
+      if (group.length < 2) continue;
+      const hasBuy = group.some(o => o.orderSide === ORDERSIDES.BUY);
+      const hasSell = group.some(o => o.orderSide === ORDERSIDES.SELL);
+      if (!hasBuy || !hasSell) continue;
+      for (const o of group) {
+        const adjusted = o.orderSide === ORDERSIDES.SELL
+          ? new BN(o.price).plus(tick)
+          : new BN(o.price).minus(tick);
+        o.price = +adjusted.toFixed(market.ask_token.precision);
+      }
+    }
   }
 
   private buildTakeProfitOrder(symbol: string, ma: number, filledSide: ORDERSIDES, orderAmount: number, market: Market): TradeOrder {
