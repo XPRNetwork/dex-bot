@@ -1,7 +1,7 @@
 // spike bot strategy
 import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
-import { BotConfig, SpikeBotPair, TradeOrder, TrackedOrder, TradingStrategy } from '../interfaces';
+import { AdjustmentHistoryEntry, BotConfig, SpikeBotPair, SpikeTrigger, TradeOrder, TrackedOrder, TradingStrategy } from '../interfaces';
 import { getLogger, getUsername } from '../utils';
 import { TradingStrategyBase, OrderStateEntry } from './base';
 import * as dexrpc from '../dexrpc';
@@ -479,7 +479,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
                 continue;
               }
 
-              const quantityCurr = (onChain as any).quantity_curr ?? tracked.quantity;
+              const quantityCurr = onChain.quantity_curr ?? tracked.quantity;
 
               // Log partial fill if detected
               if (quantityCurr < tracked.quantity) {
@@ -535,7 +535,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // 7b. Re-place snapshotted TPs after rebalance
         if (rebalanced && rebalanceTPSnapshot.length > 0) {
           const tpOrders: TradeOrder[] = [];
-          const tpMeta: { entryPrice: number; spikeTrigger?: import('../interfaces').SpikeTrigger; adjustmentHistory?: import('../interfaces').AdjustmentHistoryEntry[]; quantityCurr: number }[] = [];
+          const tpMeta: { entryPrice: number; spikeTrigger?: SpikeTrigger; adjustmentHistory?: AdjustmentHistoryEntry[]; quantityCurr: number }[] = [];
 
           for (const { tracked, quantityCurr } of rebalanceTPSnapshot) {
             const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
