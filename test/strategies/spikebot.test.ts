@@ -86,12 +86,238 @@ describe('SpikeBotStrategy', () => {
 
       mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06);
       mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
-        { order_id: 'tp-1', price: 1.0, order_side: 2 },
+        { order_id: 'tp-1', price: 1.0, order_side: 2, quantity_curr: 20 },
       ]);
+
+      // Mock resolveOrderIds so re-placed TP gets an orderId
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o: any, i: number) => ({ ...o, orderId: `resolved-${i}`, placedAt: new Date().toISOString() }));
 
       await strategy.trade();
 
       expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+      // After rebalance, TP should be re-placed at the new MA (1.054)
+      expect(state.takeProfitOrders.length).toBe(1);
+      const tp = state.takeProfitOrders[0];
+      expect(tp.price).toBeCloseTo(1.054, 3);
+      expect(tp.entryPrice).toBe(0.9);
+      expect(tp.cyclesSincePlace).toBe(0);
+      expect(tp.originalTargetPrice).toBeCloseTo(1.054, 3);
+      expect(tp.orderSide).toBe(2);
+    });
+  });
+
+  describe('Rebalance: TP preservation', () => {
+    it('moves TP to held recovery when new MA crosses entry price (SELL)', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // MA drifts to 0.85 (below entryPrice 0.9) — SELL TP should be held
+      state.priceHistory = Array(9).fill(0.85);
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 3, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.85);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2, quantity_curr: 20 },
+      ]);
+
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o: any, i: number) => ({ ...o, orderId: `resolved-${i}`, placedAt: new Date().toISOString() }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders.length).toBe(0);
+      expect(state.heldRecoveryOrders.length).toBe(1);
+      expect(state.heldRecoveryOrders[0].heldSince).toBeDefined();
+    });
+
+    it('moves BUY TP to held when new MA crosses entry price', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // MA drifts to 1.15 (above entryPrice 1.1) — BUY TP should be held
+      state.priceHistory = Array(9).fill(1.15);
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 1, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 1.1, cyclesSincePlace: 3, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.15);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 1, quantity_curr: 20 },
+      ]);
+
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o: any, i: number) => ({ ...o, orderId: `resolved-${i}`, placedAt: new Date().toISOString() }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders.length).toBe(0);
+      expect(state.heldRecoveryOrders.length).toBe(1);
+      expect(state.heldRecoveryOrders[0].heldSince).toBeDefined();
+    });
+
+    it('re-places TP with remaining quantity from partial fill', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // 9 values at 1.06 + the new 1.06 = MA of 1.054 (5.4% drift from lastOrderMA=1.0)
+      state.priceHistory = Array(9).fill(1.06);
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 3, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06);
+      // quantity_curr: 18 means partially filled (original was 20)
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2, quantity_curr: 18 },
+      ]);
+
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o: any, i: number) => ({ ...o, orderId: `resolved-${i}`, placedAt: new Date().toISOString() }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders.length).toBe(1);
+      expect(state.takeProfitOrders[0].quantity).toBe(18);
+    });
+
+    it('treats fully filled TP during rebalance as filled (not re-placed)', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      state.priceHistory = Array(9).fill(1.06);
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 3, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06);
+      // TP's orderId is NOT in open orders — it was filled
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o: any, i: number) => ({ ...o, orderId: `resolved-${i}`, placedAt: new Date().toISOString() }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders.length).toBe(0);
+    });
+
+    it('re-places multiple TPs independently during rebalance', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      state.priceHistory = Array(9).fill(1.06);
+      state.spikeOrders = [];
+      state.takeProfitOrders = [
+        {
+          orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+          orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 5, originalTargetPrice: 1.0,
+          spikeTrigger: { price: 1.0, at: '2026-04-10T00:00:00Z' },
+        },
+        {
+          orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD',
+          orderId: 'tp-2', entryPrice: 0.95, cyclesSincePlace: 3, originalTargetPrice: 1.05,
+          spikeTrigger: { price: 1.02, at: '2026-04-11T00:00:00Z' },
+        },
+      ];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2, quantity_curr: 20 },
+        { order_id: 'tp-2', price: 1.05, order_side: 2, quantity_curr: 20 },
+      ]);
+
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o: any, i: number) => ({ ...o, orderId: `resolved-${i}`, placedAt: new Date().toISOString() }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders.length).toBe(2);
+      // Both should be re-placed with cyclesSincePlace reset to 0
+      for (const tp of state.takeProfitOrders) {
+        expect(tp.cyclesSincePlace).toBe(0);
+      }
+      // Individual metadata preserved
+      const tp1 = state.takeProfitOrders.find((o: any) => o.entryPrice === 0.9);
+      const tp2 = state.takeProfitOrders.find((o: any) => o.entryPrice === 0.95);
+      expect(tp1).toBeDefined();
+      expect(tp2).toBeDefined();
+      expect(tp1.spikeTrigger.price).toBe(1.0);
+      expect(tp2.spikeTrigger.price).toBe(1.02);
+    });
+
+    it('logs adjustment history with rebalance reason', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      state.priceHistory = Array(9).fill(1.06);
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 3, originalTargetPrice: 1.0,
+        adjustmentHistory: [{ price: 1.0, at: '2026-04-10T00:00:00Z', reason: 'placed' }],
+      }];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2, quantity_curr: 20 },
+      ]);
+
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o: any, i: number) => ({ ...o, orderId: `resolved-${i}`, placedAt: new Date().toISOString() }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders.length).toBe(1);
+      const tp = state.takeProfitOrders[0];
+      expect(tp.adjustmentHistory).toHaveLength(2);
+      expect(tp.adjustmentHistory[1].reason).toBe('rebalance');
     });
   });
 
