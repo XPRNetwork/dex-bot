@@ -452,12 +452,52 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
         // 6. MA drift check - rebalance if MA shifted beyond threshold
         let rebalanced = false;
+        let rebalanceTPSnapshot: { tracked: TrackedOrder; quantityCurr: number }[] = [];
         if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
             const reason = `MA drift ${driftPct.toFixed(2)}% exceeds threshold — rebalancing`;
             logger.info(`[SpikeBot] ${symbol} ${reason}`);
             this.setLastCancelReason(state, reason);
+
+            // Snapshot TPs with their on-chain remaining quantities before cancelling
+            for (const tracked of state.takeProfitOrders) {
+              const onChain = tracked.orderId
+                ? openOrders.find(o => o.order_id === tracked.orderId)
+                : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
+
+              if (!onChain) {
+                // TP was fully filled between fetch and now — log as filled, skip re-placement
+                const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+                logger.info(`[SpikeBot] Take-profit ${sideStr} filled at ${tracked.price} for ${symbol} (detected during rebalance)`);
+                events.orderFilled(`[SpikeBot] Take-profit ${sideStr} filled at ${tracked.price} (during rebalance)`, {
+                  market: symbol,
+                  side: sideStr,
+                  quantity: tracked.quantity,
+                  price: tracked.price,
+                });
+                continue;
+              }
+
+              const quantityCurr = (onChain as any).quantity_curr ?? tracked.quantity;
+
+              // Log partial fill if detected
+              if (quantityCurr < tracked.quantity) {
+                const filledQty = +(tracked.quantity - quantityCurr).toFixed(market.bid_token.precision);
+                const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+                logger.info(`[SpikeBot] Rebalance: ${sideStr} TP partial fill detected — ${filledQty} of ${tracked.quantity} filled at ${tracked.price} before re-placement`);
+                events.orderFilled(`[SpikeBot] Rebalance: ${sideStr} TP partial fill — ${filledQty} of ${tracked.quantity} at ${tracked.price}`, {
+                  market: symbol,
+                  side: sideStr,
+                  quantity: filledQty,
+                  price: tracked.price,
+                  partial: true,
+                });
+              }
+
+              rebalanceTPSnapshot.push({ tracked, quantityCurr });
+            }
+
             await this.cancelPairOrders(symbol, activeOpenOrders);
             await dexrpc.withdrawAll();
             await delay(2000);
@@ -489,6 +529,96 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             const resolved = await this.resolveOrderIds(spikeOrders, symbol);
             state.spikeOrders = resolved.map(o => ({ ...o, spikeTrigger: { ...trigger } }));
             state.lastOrderMA = state.currentMA;
+          }
+        }
+
+        // 7b. Re-place snapshotted TPs after rebalance
+        if (rebalanced && rebalanceTPSnapshot.length > 0) {
+          const tpOrders: TradeOrder[] = [];
+          const tpMeta: { entryPrice: number; spikeTrigger?: import('../interfaces').SpikeTrigger; adjustmentHistory?: import('../interfaces').AdjustmentHistoryEntry[]; quantityCurr: number }[] = [];
+
+          for (const { tracked, quantityCurr } of rebalanceTPSnapshot) {
+            const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+
+            // Guard: if new MA crosses entry price, move to held recovery
+            const maUnprofitable = tracked.orderSide === ORDERSIDES.SELL
+              ? state.currentMA <= tracked.entryPrice!
+              : state.currentMA >= tracked.entryPrice!;
+
+            if (maUnprofitable) {
+              // Can't place a profitable TP at current MA — move to held
+              const heldOrder: TrackedOrder = {
+                ...tracked,
+                heldSince: new Date().toISOString(),
+                quantity: quantityCurr,
+              };
+              // Place a new on-chain order at the old price so it can still fill
+              const filledSide = tracked.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
+              const heldTpOrder = this.buildTakeProfitOrder(symbol, tracked.price, filledSide, state.config.orderAmount, market);
+              heldTpOrder.quantity = quantityCurr;
+              await this.placeOrders([heldTpOrder]);
+              const resolvedHeld = await this.resolveOrderIds([heldTpOrder], symbol);
+              if (resolvedHeld.length > 0) {
+                heldOrder.orderId = resolvedHeld[0].orderId;
+                heldOrder.price = resolvedHeld[0].price;
+              }
+              state.heldRecoveryOrders.push(heldOrder);
+
+              logger.info(`[SpikeBot] Rebalance: ${sideStr} TP moved to held — MA ${state.currentMA.toFixed(market.ask_token.precision)} ${tracked.orderSide === ORDERSIDES.SELL ? 'below' : 'above'} entry ${tracked.entryPrice}`);
+              events.orderHeld(`[SpikeBot] Rebalance: ${sideStr} TP moved to held — MA crosses entry`, {
+                market: symbol,
+                side: sideStr,
+                price: tracked.price,
+                entryPrice: tracked.entryPrice!,
+                currentMA: state.currentMA,
+              });
+              continue;
+            }
+
+            // Build replacement TP at new MA
+            const filledSide = tracked.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
+            const tpOrder = this.buildTakeProfitOrder(symbol, state.currentMA, filledSide, state.config.orderAmount, market);
+            // Override quantity with remaining on-chain quantity
+            tpOrder.quantity = quantityCurr;
+            tpOrders.push(tpOrder);
+            tpMeta.push({
+              entryPrice: tracked.entryPrice!,
+              spikeTrigger: tracked.spikeTrigger,
+              adjustmentHistory: tracked.adjustmentHistory,
+              quantityCurr,
+            });
+
+            logger.info(`[SpikeBot] Rebalance: re-placed ${sideStr} TP at ${state.currentMA.toFixed(market.ask_token.precision)} (was ${tracked.price.toFixed(market.ask_token.precision)}, entry ${tracked.entryPrice})`);
+          }
+
+          if (tpOrders.length > 0) {
+            this.offsetMixedSideCollisions(tpOrders, market);
+            await this.placeOrders(tpOrders);
+            const resolvedTP = await this.resolveOrderIds(tpOrders, symbol);
+            const now = new Date().toISOString();
+            for (let i = 0; i < resolvedTP.length; i++) {
+              const r = resolvedTP[i];
+              const meta = tpMeta[i];
+              r.entryPrice = meta.entryPrice;
+              r.cyclesSincePlace = 0;
+              r.originalTargetPrice = state.currentMA;
+              r.spikeTrigger = meta.spikeTrigger;
+              r.quantity = meta.quantityCurr;
+              r.adjustmentHistory = [
+                ...(meta.adjustmentHistory ?? []),
+                { price: r.price, at: now, reason: 'rebalance' as const },
+              ];
+              state.takeProfitOrders.push(r);
+            }
+
+            events.gridPlaced(`[SpikeBot] Re-placed ${resolvedTP.length} TP orders after rebalance`, {
+              orders: resolvedTP.map(o => ({
+                market: symbol,
+                side: o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL',
+                quantity: o.quantity,
+                price: o.price,
+              })),
+            });
           }
         }
       } catch (error) {

@@ -75,8 +75,8 @@ describe('SpikeBotStrategy', () => {
       const state = (strategy as any).pairStates[0];
 
       // Pre-fill history so MA will drift well past 2% threshold
-      // 9 values at 1.06 + the new 1.06 = MA of 1.054 (5.4% drift from lastOrderMA=1.0)
-      state.priceHistory = Array(9).fill(1.06);
+      // 1 old value at 1.0 + 8 values at 1.06 + the new 1.06 = MA of 1.054 (5.4% drift from lastOrderMA=1.0)
+      state.priceHistory = [1.0, ...Array(8).fill(1.06)];
       state.spikeOrders = [];
       state.takeProfitOrders = [{
         orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
