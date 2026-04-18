@@ -13,7 +13,7 @@ import { readPending, appendResult, BotCommand, BotCommandResult } from './comma
 export interface AdjustmentHistoryState {
   price: number;
   at: string;
-  reason: 'placed' | 'patience-expired' | 'tier-bump' | 'manual';
+  reason: 'placed' | 'patience-expired' | 'tier-bump' | 'manual' | 'rebalance';
 }
 
 export interface SpikeTriggerState {

@@ -10,7 +10,7 @@ export interface TradeOrder {
 export interface AdjustmentHistoryEntry {
   price: number;
   at: string;           // ISO timestamp
-  reason: 'placed' | 'patience-expired' | 'tier-bump' | 'manual';
+  reason: 'placed' | 'patience-expired' | 'tier-bump' | 'manual' | 'rebalance';
 }
 
 export interface SpikeTrigger {
