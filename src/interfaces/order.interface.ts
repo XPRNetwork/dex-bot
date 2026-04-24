@@ -28,6 +28,8 @@ export interface TrackedOrder extends TradeOrder {
     adjustmentHistory?: AdjustmentHistoryEntry[]; // price changes over time
     cancelReason?: string;        // set right before bot-initiated cancel
     spikeTrigger?: SpikeTrigger;  // inherited from spike order that produced this TP
+    spikeLevel?: number;          // 1..N; level of the originating spike order
+    coveredQuantity?: number;     // spike-only; total quantity already covered by TP placements
 }
 
 export interface MockTrackedOrder extends TrackedOrder {
