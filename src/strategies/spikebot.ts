@@ -521,13 +521,19 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             await delay(2000);
           }
 
-          const spikeOrders = this.buildSpikeOrders(symbol, state.currentMA, state.config, market);
-          if (spikeOrders.length > 0) {
+          const spikeEntries = this.buildSpikeOrders(symbol, state.currentMA, state.config, market);
+          if (spikeEntries.length > 0) {
+            const spikeOrders = spikeEntries.map(e => e.order);
             logger.info(`[SpikeBot] ${symbol} placing ${spikeOrders.length} spike orders around MA ${state.currentMA.toFixed(market.ask_token.precision)}`);
             const trigger = { price: state.currentMA, at: new Date().toISOString() };
             await this.placeOrders(spikeOrders);
             const resolved = await this.resolveOrderIds(spikeOrders, symbol);
-            state.spikeOrders = resolved.map(o => ({ ...o, spikeTrigger: { ...trigger } }));
+            state.spikeOrders = resolved.map((o, i) => ({
+              ...o,
+              spikeTrigger: { ...trigger },
+              spikeLevel: spikeEntries[i].level,
+              coveredQuantity: 0,
+            }));
             state.lastOrderMA = state.currentMA;
           }
         }
@@ -819,39 +825,53 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
     }
   }
 
-  private buildSpikeOrders(symbol: string, ma: number, pairConfig: SpikeBotPair, market: Market): TradeOrder[] {
-    const { deviationPct, levels, orderAmount } = pairConfig;
+  private buildSingleSpikeOrder(
+    symbol: string,
+    anchorMA: number,
+    deviationPct: number,
+    level: number,
+    side: ORDERSIDES,
+    orderAmount: number,
+    market: Market,
+  ): TradeOrder {
     const bidPrecision = market.bid_token.precision;
     const askPrecision = market.ask_token.precision;
-    const orders: TradeOrder[] = [];
+    const deviation = deviationPct * level / 100;
 
-    for (let level = 1; level <= levels; level++) {
-      const deviation = deviationPct * level / 100;
-
-      // Buy order below MA
-      const buyPrice = new BN(ma).times(1 - deviation).toFixed(askPrecision);
+    if (side === ORDERSIDES.BUY) {
+      const buyPrice = new BN(anchorMA).times(1 - deviation).toFixed(askPrecision);
       const { adjustedTotal } = this.getQuantityAndAdjustedTotal(buyPrice, orderAmount, bidPrecision, askPrecision);
-      orders.push({
+      return {
         orderSide: ORDERSIDES.BUY,
         price: +buyPrice,
         quantity: adjustedTotal,
         marketSymbol: symbol,
-      });
-
-      // Sell order above MA
-      const sellPrice = new BN(ma).times(1 + deviation).toFixed(askPrecision);
+      };
+    } else {
+      const sellPrice = new BN(anchorMA).times(1 + deviation).toFixed(askPrecision);
       const { quantity } = this.getQuantityAndAdjustedTotal(sellPrice, orderAmount, bidPrecision, askPrecision);
-      orders.push({
+      return {
         orderSide: ORDERSIDES.SELL,
         price: +sellPrice,
         quantity,
         marketSymbol: symbol,
-      });
-
-      logger.info(`[SpikeBot] ${symbol} level ${level}: BUY at ${buyPrice}, SELL at ${sellPrice}`);
+      };
     }
+  }
 
-    return orders;
+  private buildSpikeOrders(
+    symbol: string, ma: number, pairConfig: SpikeBotPair, market: Market,
+  ): { order: TradeOrder; level: number }[] {
+    const { deviationPct, levels, orderAmount } = pairConfig;
+    const result: { order: TradeOrder; level: number }[] = [];
+    for (let level = 1; level <= levels; level++) {
+      const buyOrder = this.buildSingleSpikeOrder(symbol, ma, deviationPct, level, ORDERSIDES.BUY, orderAmount, market);
+      const sellOrder = this.buildSingleSpikeOrder(symbol, ma, deviationPct, level, ORDERSIDES.SELL, orderAmount, market);
+      result.push({ order: buyOrder, level });
+      result.push({ order: sellOrder, level });
+      logger.info(`[SpikeBot] ${symbol} level ${level}: BUY at ${buyOrder.price}, SELL at ${sellOrder.price}`);
+    }
+    return result;
   }
 
   private getQuantityAndAdjustedTotal(price: BN | string, totalCost: number, bidPrecision: number, askPrecision: number): {

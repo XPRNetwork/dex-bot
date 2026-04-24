@@ -1437,4 +1437,48 @@ describe('SpikeBotStrategy', () => {
       expect(state.takeProfitOrders[0].orderSide).toBe(2); // SELL TP from BUY spike fill
     });
   });
+
+  describe('buildSingleSpikeOrder + buildSpikeOrders level metadata', () => {
+    it('buildSingleSpikeOrder produces correct BUY price at level 1', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
+      });
+      const order = (strategy as any).buildSingleSpikeOrder(
+        'XMT_XMD', 1.0, 10, 1, 1 /* BUY */, 20, XMT_XMD_MARKET,
+      );
+      expect(order.orderSide).toBe(1);
+      expect(order.price).toBeCloseTo(0.9, 6);
+      expect(order.marketSymbol).toBe('XMT_XMD');
+    });
+
+    it('buildSingleSpikeOrder produces correct SELL price at level 2', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
+      });
+      const order = (strategy as any).buildSingleSpikeOrder(
+        'XMT_XMD', 1.0, 10, 2, 2 /* SELL */, 20, XMT_XMD_MARKET,
+      );
+      expect(order.orderSide).toBe(2);
+      expect(order.price).toBeCloseTo(1.2, 6);
+    });
+
+    it('buildSpikeOrders returns level metadata alongside each order', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
+      });
+      const result = (strategy as any).buildSpikeOrders(
+        'XMT_XMD', 1.0, { deviationPct: 10, levels: 2, orderAmount: 20, symbol: 'XMT_XMD' }, XMT_XMD_MARKET,
+      );
+      expect(result).toHaveLength(4);
+      for (const entry of result) {
+        expect(entry).toHaveProperty('order');
+        expect(entry).toHaveProperty('level');
+      }
+      const levels = result.map((r: any) => r.level).sort();
+      expect(levels).toEqual([1, 1, 2, 2]);
+    });
+  });
 });
