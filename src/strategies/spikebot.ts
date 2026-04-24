@@ -217,6 +217,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           const newOrders: TradeOrder[] = [];
           const newOrderMeta: Array<{ entryPrice: number; spikeLevel?: number; spikeTrigger?: SpikeTrigger }> = [];
           const remainingSpike: TrackedOrder[] = [];
+          const pendingCoverageUpdates: Array<{ tracked: TrackedOrder; newCoverage: number }> = [];
 
           for (const tracked of state.spikeOrders) {
             const stillOpen = tracked.orderId
@@ -275,9 +276,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
                 spikeTrigger: tracked.spikeTrigger,
               });
 
-              tracked.coveredQuantity = filledOnChain;
+              pendingCoverageUpdates.push({ tracked, newCoverage: filledOnChain });
             }
-            // Case B — no new fill past tick: fall through, keep spike as-is.
+            // Case B — no new fill: fall through, keep spike as-is.
 
             remainingSpike.push(tracked);
           }
@@ -285,6 +286,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           if (newOrders.length > 0) {
             this.offsetMixedSideCollisions(newOrders, market);
             await this.placeOrders(newOrders);
+            // placeOrders succeeded — safe to advance coverage now
+            for (const u of pendingCoverageUpdates) {
+              u.tracked.coveredQuantity = u.newCoverage;
+            }
             const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
             const now = new Date().toISOString();
             const placed = resolvedTP.map((r, i) => ({
