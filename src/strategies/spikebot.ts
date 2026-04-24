@@ -212,40 +212,74 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // are not immediately checked for fill in step 5 of the same cycle.
         const existingTakeProfitOrders = [...state.takeProfitOrders];
 
-        // 4. Fill detection - spike orders
+        // 4. Fill detection — spike orders, including partial fills
         if (state.spikeOrders.length > 0) {
           const newOrders: TradeOrder[] = [];
+          const newOrderMeta: Array<{ entryPrice: number; spikeLevel?: number; spikeTrigger?: SpikeTrigger }> = [];
           const remainingSpike: TrackedOrder[] = [];
 
           for (const tracked of state.spikeOrders) {
-            // Use order ID for fill detection when available, fall back to price+side
             const stillOpen = tracked.orderId
               ? openOrders.find(o => o.order_id === tracked.orderId)
               : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
 
             if (!stillOpen) {
-              // Spike order was filled
+              // Case A — spike fully resolved. Place a terminal TP for the uncovered remainder.
+              const terminalQty = +(tracked.quantity - (tracked.coveredQuantity ?? 0)).toFixed(market.bid_token.precision);
+              if (terminalQty > 0) {
+                const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+                const fillMsg = `[SpikeBot] Filled ${sideStr} spike at ${tracked.price} for ${symbol} (terminal qty ${terminalQty})`;
+                logger.info(fillMsg);
+                events.orderFilled(fillMsg, {
+                  market: symbol,
+                  side: sideStr,
+                  quantity: terminalQty,
+                  price: tracked.price,
+                });
+
+                const tpOrder = this.buildTakeProfitOrder(symbol, state.currentMA, tracked.orderSide, state.config.orderAmount, market);
+                tpOrder.quantity = terminalQty;
+                newOrders.push(tpOrder);
+                newOrderMeta.push({
+                  entryPrice: tracked.price,
+                  spikeLevel: tracked.spikeLevel,
+                  spikeTrigger: tracked.spikeTrigger,
+                });
+              }
+              continue;
+            }
+
+            // Spike still on-chain. Check for partial fill via quantity_curr.
+            const quantityCurr = stillOpen.quantity_curr ?? tracked.quantity;
+            const filledOnChain = +(tracked.quantity - quantityCurr).toFixed(market.bid_token.precision);
+            const newlyUncovered = +(filledOnChain - (tracked.coveredQuantity ?? 0)).toFixed(market.bid_token.precision);
+
+            if (newlyUncovered > 0) {
+              // Case C — partial fill with new uncovered delta.
               const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
-              const fillMsg = `[SpikeBot] Filled ${sideStr} spike at ${tracked.price} for ${symbol}`;
-              logger.info(fillMsg);
-              events.orderFilled(fillMsg, {
+              logger.info(`[SpikeBot] Partial fill ${sideStr} spike at ${tracked.price} for ${symbol}: +${newlyUncovered} newly uncovered (total filled ${filledOnChain} of ${tracked.quantity})`);
+              events.orderFilled(`[SpikeBot] Partial fill ${sideStr} spike +${newlyUncovered} at ${tracked.price}`, {
                 market: symbol,
                 side: sideStr,
-                quantity: tracked.quantity,
+                quantity: newlyUncovered,
                 price: tracked.price,
+                partial: true,
               });
 
-              // Place take-profit counter-order at MA
               const tpOrder = this.buildTakeProfitOrder(symbol, state.currentMA, tracked.orderSide, state.config.orderAmount, market);
-              (tpOrder as any).entryPrice = tracked.price;
-              (tpOrder as any).cyclesSincePlace = 0;
-              (tpOrder as any).originalTargetPrice = state.currentMA;
-              (tpOrder as any).spikeTrigger = tracked.spikeTrigger;
-              (tpOrder as any).spikeLevel = tracked.spikeLevel;
+              tpOrder.quantity = newlyUncovered;
               newOrders.push(tpOrder);
-            } else {
-              remainingSpike.push(tracked);
+              newOrderMeta.push({
+                entryPrice: tracked.price,
+                spikeLevel: tracked.spikeLevel,
+                spikeTrigger: tracked.spikeTrigger,
+              });
+
+              tracked.coveredQuantity = filledOnChain;
             }
+            // Case B — no new fill past tick: fall through, keep spike as-is.
+
+            remainingSpike.push(tracked);
           }
 
           if (newOrders.length > 0) {
@@ -253,13 +287,16 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             await this.placeOrders(newOrders);
             const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
             const now = new Date().toISOString();
-            const withTrigger = resolvedTP.map((r, i) => ({
+            const placed = resolvedTP.map((r, i) => ({
               ...r,
-              spikeTrigger: (newOrders[i] as any).spikeTrigger,
-              spikeLevel: (newOrders[i] as any).spikeLevel,
+              entryPrice: newOrderMeta[i].entryPrice,
+              cyclesSincePlace: 0,
+              originalTargetPrice: state.currentMA,
+              spikeTrigger: newOrderMeta[i].spikeTrigger,
+              spikeLevel: newOrderMeta[i].spikeLevel,
               adjustmentHistory: [{ price: r.price, at: now, reason: 'placed' as const }],
             }));
-            state.takeProfitOrders.push(...withTrigger);
+            state.takeProfitOrders.push(...placed);
           }
           state.spikeOrders = remainingSpike;
         }

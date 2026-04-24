@@ -1506,4 +1506,90 @@ describe('SpikeBotStrategy', () => {
       expect(state.takeProfitOrders[0].spikeLevel).toBe(1);
     });
   });
+
+  describe('Partial-fill TP handling', () => {
+    it('places a TP for newly-filled delta on first partial fill', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.9, order_side: 1, quantity_curr: 7 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(3, 4);
+      expect(state.takeProfitOrders).toHaveLength(1);
+      const tp = state.takeProfitOrders[0];
+      expect(tp.quantity).toBeCloseTo(3, 4);
+      expect(tp.orderSide).toBe(2);            // TP for BUY spike is SELL
+      expect(tp.entryPrice).toBe(0.9);
+      expect(tp.spikeLevel).toBe(1);
+      expect(tp.spikeTrigger).toEqual({ price: 1.0, at: 't0' });
+    });
+
+    it('places a second TP for additional delta on a second partial fill', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 3,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.9, order_side: 1, quantity_curr: 4 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(6, 4);
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(state.takeProfitOrders[0].quantity).toBeCloseTo(3, 4);
+    });
+
+    it('places no TP when quantity_curr is unchanged (no new fill)', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 3,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.9, order_side: 1, quantity_curr: 7 },  // same as (10 - 3)
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(0);
+      expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(3, 4);
+    });
+  });
 });
