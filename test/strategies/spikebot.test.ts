@@ -1481,4 +1481,29 @@ describe('SpikeBotStrategy', () => {
       expect(levels).toEqual([1, 1, 2, 2]);
     });
   });
+
+  describe('spikeLevel propagation', () => {
+    it('propagates spikeLevel from filled spike onto its TP', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike fully filled
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(state.takeProfitOrders[0].spikeLevel).toBe(1);
+    });
+  });
 });
