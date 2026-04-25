@@ -1702,5 +1702,31 @@ describe('SpikeBotStrategy', () => {
       expect(state.spikeOrders).toHaveLength(0);
       expect(state.takeProfitOrders).toHaveLength(0);
     });
+
+    it('persists tracked orders immediately when a partial-fill TP is placed', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.9, order_side: 1, quantity_curr: 7 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      const persistSpy = vi.spyOn(strategy as any, 'persistAllTrackedOrders');
+      await strategy.trade();
+
+      // Expect at least 2 calls: one inside step 4 after partial-fill placement, one at end-of-cycle
+      expect(persistSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
   });
 });

@@ -309,8 +309,13 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               adjustmentHistory: [{ price: r.price, at: now, reason: 'placed' as const }],
             }));
             state.takeProfitOrders.push(...placed);
+            state.spikeOrders = remainingSpike;
+            // Immediate persist: close the crash window between on-chain TP placement
+            // and end-of-cycle persist so coveredQuantity can't be lost on a crash.
+            this.persistAllTrackedOrders();
+          } else {
+            state.spikeOrders = remainingSpike;
           }
-          state.spikeOrders = remainingSpike;
         }
 
         // 5. Fill detection - take-profit orders (only orders that existed before this cycle)
