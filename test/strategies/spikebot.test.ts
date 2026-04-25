@@ -1691,9 +1691,11 @@ describe('SpikeBotStrategy', () => {
       state.takeProfitOrders = [];
       mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
       mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike gone
-      // Return empty array so step-7 spike re-placement doesn't populate spikeOrders;
-      // we only care that the old sub-tick spike is removed and no TP is placed.
-      (strategy as any).resolveOrderIds = async (_orders: any[]) => [];
+      // Suppress step-7 fresh-grid placement so the empty-state condition after Case A
+      // doesn't repopulate state.spikeOrders. We're isolating step 4's sub-tick handling.
+      (strategy as any).buildSpikeOrders = () => [];
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
 
       await strategy.trade();
 
