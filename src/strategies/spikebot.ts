@@ -581,50 +581,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           }
         }
 
-        // 7c. Spike re-placement — for each non-spike order that filled this cycle,
-        // re-place the originating spike if no rebalance has happened since it was placed.
-        for (const entry of filledNonSpikes) {
-          if (entry.spikeTrigger?.price === undefined || entry.spikeLevel === undefined) continue;
-          if (entry.spikeTrigger.price !== state.lastOrderMA) continue;  // rebalance guard
-
-          const originalSpikeSide = entry.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
-
-          const spikeOrder = this.buildSingleSpikeOrder(
-            symbol,
-            state.lastOrderMA,
-            state.config.deviationPct,
-            entry.spikeLevel,
-            originalSpikeSide,
-            state.config.orderAmount,
-            market,
-          );
-
-          await this.placeOrders([spikeOrder]);
-          const resolved = await this.resolveOrderIds([spikeOrder], symbol);
-          if (resolved.length > 0) {
-            const now = new Date().toISOString();
-            const tracked: TrackedOrder = {
-              ...resolved[0],
-              spikeTrigger: { price: state.lastOrderMA, at: now },
-              spikeLevel: entry.spikeLevel,
-              coveredQuantity: 0,
-            };
-            state.spikeOrders.push(tracked);
-            const sideStr = originalSpikeSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
-            logger.info(`[SpikeBot] Re-placed ${sideStr} spike at level ${entry.spikeLevel} (${tracked.price}) after non-spike fill`);
-            events.gridPlaced(`[SpikeBot] Re-placed ${sideStr} spike at level ${entry.spikeLevel}`, {
-              orders: [{
-                market: symbol,
-                side: sideStr,
-                quantity: tracked.quantity,
-                price: tracked.price,
-              }],
-            });
-          }
-        }
-
-        // 7. Initial placement (no tracked spike orders & MA ready, and no non-spike fills this cycle)
-        if (state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0 && filledNonSpikes.length === 0) {
+        // 7. Initial placement (no tracked spike orders & MA ready)
+        if (state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           // Skip if we just rebalanced (orders already cancelled in step 6)
           if (!rebalanced && activeOpenOrders.length > 0) {
@@ -739,6 +697,48 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
                 quantity: o.quantity,
                 price: o.price,
               })),
+            });
+          }
+        }
+
+        // 7c. Spike re-placement — for each non-spike order that filled this cycle,
+        // re-place the originating spike if no rebalance has happened since it was placed.
+        for (const entry of filledNonSpikes) {
+          if (entry.spikeTrigger?.price === undefined || entry.spikeLevel === undefined) continue;
+          if (entry.spikeTrigger.price !== state.lastOrderMA) continue;  // rebalance guard
+
+          const originalSpikeSide = entry.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
+
+          const spikeOrder = this.buildSingleSpikeOrder(
+            symbol,
+            state.lastOrderMA,
+            state.config.deviationPct,
+            entry.spikeLevel,
+            originalSpikeSide,
+            state.config.orderAmount,
+            market,
+          );
+
+          await this.placeOrders([spikeOrder]);
+          const resolved = await this.resolveOrderIds([spikeOrder], symbol);
+          if (resolved.length > 0) {
+            const now = new Date().toISOString();
+            const tracked: TrackedOrder = {
+              ...resolved[0],
+              spikeTrigger: { price: state.lastOrderMA, at: now },
+              spikeLevel: entry.spikeLevel,
+              coveredQuantity: 0,
+            };
+            state.spikeOrders.push(tracked);
+            const sideStr = originalSpikeSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+            logger.info(`[SpikeBot] Re-placed ${sideStr} spike at level ${entry.spikeLevel} (${tracked.price}) after non-spike fill`);
+            events.gridPlaced(`[SpikeBot] Re-placed ${sideStr} spike at level ${entry.spikeLevel}`, {
+              orders: [{
+                market: symbol,
+                side: sideStr,
+                quantity: tracked.quantity,
+                price: tracked.price,
+              }],
             });
           }
         }

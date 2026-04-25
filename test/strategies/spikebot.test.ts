@@ -1734,31 +1734,43 @@ describe('SpikeBotStrategy', () => {
     it('re-places the original spike when TP fills and lastOrderMA matches spikeTrigger.price', async () => {
       await strategy.initialize({
         maWindow: 10, rebalanceThresholdPct: 5.0,
-        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
       });
       warmUpMA(strategy, 1.0, 10);
       const state = (strategy as any).pairStates[0];
       state.lastOrderMA = 1.0;
-      state.spikeOrders = [];
+      // Pre-existing level-2 spikes so state isn't empty (step 7 won't fire)
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.8, quantity: 25, marketSymbol: 'XMT_XMD',
+          orderId: 's-l2-buy', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 2, coveredQuantity: 0 },
+        { orderSide: 2, price: 1.2, quantity: 16.66, marketSymbol: 'XMT_XMD',
+          orderId: 's-l2-sell', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 2, coveredQuantity: 0 },
+      ];
+      // Filled TP from a level-1 BUY spike (the one we expect to re-place)
       state.takeProfitOrders = [{
         orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
         orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.0,
         spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,
       }];
       mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
-      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // TP filled
+      // Both level-2 spikes still on-chain; tp-1 is gone (filled)
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-l2-buy', price: 0.8, order_side: 1, quantity_curr: 25 },
+        { order_id: 's-l2-sell', price: 1.2, order_side: 2, quantity_curr: 16.66 },
+      ]);
       (strategy as any).resolveOrderIds = async (orders: any[]) =>
         orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
 
       await strategy.trade();
 
-      expect(state.spikeOrders).toHaveLength(1);
-      const spike = state.spikeOrders[0];
-      expect(spike.orderSide).toBe(1);                  // opposite of TP (which was SELL)
-      expect(spike.price).toBeCloseTo(0.9, 6);          // 1.0 × (1 - 0.10)
-      expect(spike.spikeLevel).toBe(1);
-      expect(spike.spikeTrigger.price).toBe(1.0);
-      expect(spike.coveredQuantity).toBe(0);
+      // Pre-existing level-2 spikes preserved + 1 new level-1 BUY spike from step 7c
+      expect(state.spikeOrders).toHaveLength(3);
+      const replaced = state.spikeOrders.find((s: any) => s.spikeLevel === 1);
+      expect(replaced).toBeDefined();
+      expect(replaced.orderSide).toBe(1);                   // opposite of TP (which was SELL)
+      expect(replaced.price).toBeCloseTo(0.9, 6);           // 1.0 × (1 - 0.10)
+      expect(replaced.spikeTrigger.price).toBe(1.0);
+      expect(replaced.coveredQuantity).toBe(0);
     });
 
     it('does not re-place when spikeTrigger.price differs from lastOrderMA (rebalance occurred)', async () => {
@@ -1768,21 +1780,35 @@ describe('SpikeBotStrategy', () => {
       });
       warmUpMA(strategy, 1.05, 10);
       const state = (strategy as any).pairStates[0];
-      state.lastOrderMA = 1.05;                         // grid rebuilt at 1.05
-      state.spikeOrders = [];
+      state.lastOrderMA = 1.05;                             // grid rebuilt at 1.05
+      // Post-rebalance grid: spikes anchored to NEW MA 1.05, so spikeTrigger.price=1.05
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.945, quantity: 21.16, marketSymbol: 'XMT_XMD',
+          orderId: 's-new-buy', spikeTrigger: { price: 1.05, at: 't1' }, spikeLevel: 1, coveredQuantity: 0 },
+        { orderSide: 2, price: 1.155, quantity: 17.31, marketSymbol: 'XMT_XMD',
+          orderId: 's-new-sell', spikeTrigger: { price: 1.05, at: 't1' }, spikeLevel: 1, coveredQuantity: 0 },
+      ];
+      // Carried-through TP from OLD grid (spikeTrigger.price=1.0 doesn't match new lastOrderMA)
       state.takeProfitOrders = [{
         orderSide: 2, price: 1.05, quantity: 20, marketSymbol: 'XMT_XMD',
         orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.05,
-        spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,     // spike originally placed at MA=1.0
+        spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,    // OLD spikeTrigger
       }];
       mockDexAPI.fetchLatestPrice.mockResolvedValue(1.05);
-      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // TP filled
+      // Both new spikes still on-chain; tp-1 is gone (filled)
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-new-buy', price: 0.945, order_side: 1, quantity_curr: 21.16 },
+        { order_id: 's-new-sell', price: 1.155, order_side: 2, quantity_curr: 17.31 },
+      ]);
       (strategy as any).resolveOrderIds = async (orders: any[]) =>
         orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
 
       await strategy.trade();
 
-      expect(state.spikeOrders).toHaveLength(0);
+      // Only the two pre-existing post-rebalance spikes remain — no re-placement at OLD level
+      expect(state.spikeOrders).toHaveLength(2);
+      const oldLevelSpike = state.spikeOrders.find((s: any) => Math.abs(s.price - 0.9) < 0.0001);
+      expect(oldLevelSpike).toBeUndefined();
     });
   });
 });
