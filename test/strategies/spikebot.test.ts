@@ -1926,6 +1926,52 @@ describe('SpikeBotStrategy', () => {
       const oldLevelSpike = state.spikeOrders.find((s: any) => Math.abs(s.price - 0.9) < 0.0001);
       expect(oldLevelSpike).toBeUndefined();
     });
+
+    it('replaces the spike on the first matching TP fill, then skips subsequent TP fills from the same lineage', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.lastOrderMA = 1.0;
+      // Pre-existing level-2 spikes so initial-placement branch is bypassed
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.8, quantity: 25, marketSymbol: 'XMT_XMD',
+          orderId: 's-l2-buy', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 2, coveredQuantity: 0 },
+        { orderSide: 2, price: 1.2, quantity: 16.66, marketSymbol: 'XMT_XMD',
+          orderId: 's-l2-sell', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 2, coveredQuantity: 0 },
+      ];
+      // Two TPs, same spike lineage (level 1, both SELL TPs from a BUY spike)
+      state.takeProfitOrders = [
+        {
+          orderSide: 2, price: 1.0, quantity: 3, marketSymbol: 'XMT_XMD',
+          orderId: 'tp-a', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.0,
+          spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,
+        },
+        {
+          orderSide: 2, price: 1.0, quantity: 7, marketSymbol: 'XMT_XMD',
+          orderId: 'tp-b', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.0,
+          spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,
+        },
+      ];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      // Both level-2 spikes still on-chain; both TPs filled (absent)
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-l2-buy', price: 0.8, order_side: 1, quantity_curr: 25 },
+        { order_id: 's-l2-sell', price: 1.2, order_side: 2, quantity_curr: 16.66 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      // Pre-existing level-2 spikes preserved + exactly ONE re-placed level-1 spike (not two)
+      expect(state.spikeOrders).toHaveLength(3);
+      const replacedLevel1 = state.spikeOrders.filter((s: any) => s.spikeLevel === 1);
+      expect(replacedLevel1).toHaveLength(1);
+      expect(replacedLevel1[0].orderSide).toBe(1);
+    });
   });
 
   describe('spikeLevel preservation through tier-bump', () => {
