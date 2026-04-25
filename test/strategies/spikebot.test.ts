@@ -1844,5 +1844,87 @@ describe('SpikeBotStrategy', () => {
       expect(state.spikeOrders).toHaveLength(1);
       expect(state.spikeOrders[0].orderId).toBe('s-existing');
     });
+
+    it('re-places the spike when a held recovery order fills before any rebalance', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.lastOrderMA = 1.0;
+      // Pre-existing level-2 spikes so initial-placement branch is bypassed
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.8, quantity: 25, marketSymbol: 'XMT_XMD',
+          orderId: 's-l2-buy', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 2, coveredQuantity: 0 },
+        { orderSide: 2, price: 1.2, quantity: 16.66, marketSymbol: 'XMT_XMD',
+          orderId: 's-l2-sell', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 2, coveredQuantity: 0 },
+      ];
+      state.takeProfitOrders = [];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'held-1', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.0,
+        spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,
+        heldSince: '2026-04-20T00:00:00Z',
+      }];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      // Both level-2 spikes still on-chain; held order is gone (filled)
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-l2-buy', price: 0.8, order_side: 1, quantity_curr: 25 },
+        { order_id: 's-l2-sell', price: 1.2, order_side: 2, quantity_curr: 16.66 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      // Pre-existing level-2 spikes preserved + 1 new level-1 BUY spike from step 7c
+      expect(state.spikeOrders).toHaveLength(3);
+      const replaced = state.spikeOrders.find((s: any) => s.spikeLevel === 1);
+      expect(replaced).toBeDefined();
+      expect(replaced.orderSide).toBe(1);                  // opposite of held SELL
+      expect(replaced.price).toBeCloseTo(0.9, 6);          // 1.0 × (1 - 0.10)
+      expect(replaced.spikeTrigger.price).toBe(1.0);
+    });
+
+    it('does not re-place when a held recovery order fills after a rebalance', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.05, 10);
+      const state = (strategy as any).pairStates[0];
+      state.lastOrderMA = 1.05;
+      // Post-rebalance grid at 1.05 (so initial-placement branch is bypassed)
+      state.spikeOrders = [
+        { orderSide: 1, price: 0.945, quantity: 21.16, marketSymbol: 'XMT_XMD',
+          orderId: 's-new-buy', spikeTrigger: { price: 1.05, at: 't1' }, spikeLevel: 1, coveredQuantity: 0 },
+        { orderSide: 2, price: 1.155, quantity: 17.31, marketSymbol: 'XMT_XMD',
+          orderId: 's-new-sell', spikeTrigger: { price: 1.05, at: 't1' }, spikeLevel: 1, coveredQuantity: 0 },
+      ];
+      state.takeProfitOrders = [];
+      state.heldRecoveryOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'held-1', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.0,
+        spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,    // OLD spikeTrigger
+        heldSince: '2026-04-20T00:00:00Z',
+      }];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.05);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-new-buy', price: 0.945, order_side: 1, quantity_curr: 21.16 },
+        { order_id: 's-new-sell', price: 1.155, order_side: 2, quantity_curr: 17.31 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.heldRecoveryOrders).toHaveLength(0);
+      // Only the two pre-existing post-rebalance spikes remain
+      expect(state.spikeOrders).toHaveLength(2);
+      const oldLevelSpike = state.spikeOrders.find((s: any) => Math.abs(s.price - 0.9) < 0.0001);
+      expect(oldLevelSpike).toBeUndefined();
+    });
   });
 });
