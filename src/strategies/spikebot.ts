@@ -214,6 +214,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
         // 4. Fill detection — spike orders, including partial fills
         if (state.spikeOrders.length > 0) {
+          const tick = Math.pow(10, -market.bid_token.precision);
           const newOrders: TradeOrder[] = [];
           const newOrderMeta: Array<{ entryPrice: number; spikeLevel?: number; spikeTrigger?: SpikeTrigger }> = [];
           const remainingSpike: TrackedOrder[] = [];
@@ -225,9 +226,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
 
             if (!stillOpen) {
-              // Case A — spike fully resolved. Place a terminal TP for the uncovered remainder.
+              // Case A — spike fully resolved.
               const terminalQty = +(tracked.quantity - (tracked.coveredQuantity ?? 0)).toFixed(market.bid_token.precision);
-              if (terminalQty > 0) {
+              if (terminalQty >= tick) {
                 const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
                 const fillMsg = `[SpikeBot] Filled ${sideStr} spike at ${tracked.price} for ${symbol} (terminal qty ${terminalQty})`;
                 logger.info(fillMsg);
@@ -246,6 +247,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
                   spikeLevel: tracked.spikeLevel,
                   spikeTrigger: tracked.spikeTrigger,
                 });
+              } else if (terminalQty > 0) {
+                logger.info(`[SpikeBot] Sub-tick terminal residual ${terminalQty} for ${symbol} spike — skipping TP placement`);
               }
               continue;
             }
@@ -255,8 +258,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             const filledOnChain = +(tracked.quantity - quantityCurr).toFixed(market.bid_token.precision);
             const newlyUncovered = +(filledOnChain - (tracked.coveredQuantity ?? 0)).toFixed(market.bid_token.precision);
 
-            if (newlyUncovered > 0) {
-              // Case C — partial fill with new uncovered delta.
+            if (newlyUncovered >= tick) {
+              // Case C — partial fill with new uncovered delta at or above tick threshold.
               const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
               logger.info(`[SpikeBot] Partial fill ${sideStr} spike at ${tracked.price} for ${symbol}: +${newlyUncovered} newly uncovered (total filled ${filledOnChain} of ${tracked.quantity})`);
               events.orderFilled(`[SpikeBot] Partial fill ${sideStr} spike +${newlyUncovered} at ${tracked.price}`, {
@@ -277,8 +280,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               });
 
               pendingCoverageUpdates.push({ tracked, newCoverage: filledOnChain });
+            } else if (newlyUncovered > 0) {
+              // Case B — sub-tick residual accumulates; do not update coveredQuantity.
+              logger.info(`[SpikeBot] Sub-tick residual ${newlyUncovered} for ${symbol} spike — deferring`);
             }
-            // Case B — no new fill: fall through, keep spike as-is.
+            // Case B — no new fill (or sub-tick residual handled inline above): fall through.
 
             remainingSpike.push(tracked);
           }

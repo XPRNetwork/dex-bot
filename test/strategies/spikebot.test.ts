@@ -1615,5 +1615,90 @@ describe('SpikeBotStrategy', () => {
       expect(state.takeProfitOrders).toHaveLength(1);
       expect(state.takeProfitOrders[0].quantity).toBeCloseTo(4, 4);
     });
+
+    it('skips partial-fill TP when newlyUncovered is below one tick', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      // XMT_XMD bid_token.precision = 4 → tick = 0.0001
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 3,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      // quantity_curr = 6.99995 → filledOnChain ≈ 3.00005 → newlyUncovered ≈ 0.00005 < 0.0001
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.9, order_side: 1, quantity_curr: 6.99995 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(0);
+      expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(3, 4);
+    });
+
+    it('places an accumulated TP once sub-tick residuals cross the tick threshold', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 3,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+
+      // Cycle 1: sub-tick delta, no TP
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValueOnce([
+        { order_id: 's-1', price: 0.9, order_side: 1, quantity_curr: 6.99995 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+      await strategy.trade();
+      expect(state.takeProfitOrders).toHaveLength(0);
+
+      // Cycle 2: now quantity_curr = 6.9, filledOnChain = 3.1, newlyUncovered = 0.1 (>= tick)
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValueOnce([
+        { order_id: 's-1', price: 0.9, order_side: 1, quantity_curr: 6.9 },
+      ]);
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(state.takeProfitOrders[0].quantity).toBeCloseTo(0.1, 4);
+      expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(3.1, 4);
+    });
+
+    it('skips terminal TP when residual is below one tick', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 9.99995,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike gone
+      // Return empty array so step-7 spike re-placement doesn't populate spikeOrders;
+      // we only care that the old sub-tick spike is removed and no TP is placed.
+      (strategy as any).resolveOrderIds = async (_orders: any[]) => [];
+
+      await strategy.trade();
+
+      expect(state.spikeOrders).toHaveLength(0);
+      expect(state.takeProfitOrders).toHaveLength(0);
+    });
   });
 });
