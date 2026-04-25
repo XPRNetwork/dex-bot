@@ -1811,5 +1811,38 @@ describe('SpikeBotStrategy', () => {
       const oldLevelSpike = state.spikeOrders.find((s: any) => Math.abs(s.price - 0.9) < 0.0001);
       expect(oldLevelSpike).toBeUndefined();
     });
+
+    it('does not re-place when a spike at the same level+side already exists', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.lastOrderMA = 1.0;
+      // Existing BUY spike at level 1
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 's-existing', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.0,
+        spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,
+      }];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      // Spike s-existing stays on-chain (unchanged); TP tp-1 is filled (absent)
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-existing', price: 0.9, order_side: 1, quantity_curr: 20 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `new-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      // Still exactly one spike (the existing one); no re-placement happened
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.spikeOrders[0].orderId).toBe('s-existing');
+    });
   });
 });

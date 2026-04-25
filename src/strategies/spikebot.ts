@@ -712,6 +712,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           if (entry.spikeTrigger.price !== state.lastOrderMA) continue;  // rebalance guard
 
           const originalSpikeSide = entry.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
+          const slotOccupied = state.spikeOrders.some(
+            s => s.spikeLevel === entry.spikeLevel && s.orderSide === originalSpikeSide,
+          );
+          if (slotOccupied) continue;
 
           const spikeOrder = this.buildSingleSpikeOrder(
             symbol,
