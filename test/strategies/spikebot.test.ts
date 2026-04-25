@@ -1998,4 +1998,64 @@ describe('SpikeBotStrategy', () => {
       expect(replaced.price).toBeCloseTo(0.9, 6);
     });
   });
+
+  describe('spikeLevel preservation through rebalance', () => {
+    it('preserves spikeLevel on TPs re-placed by the rebalance flow', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      // Drift the MA past threshold
+      state.priceHistory = [1.0, ...Array(8).fill(1.06)];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.0,
+        spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,
+      }];
+      state.lastOrderMA = 1.0;
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.06);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2, quantity_curr: 20 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `r-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(state.takeProfitOrders[0].spikeLevel).toBe(1);
+    });
+
+    it('preserves spikeLevel when rebalance moves a TP to held', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      // Drift downward so new MA is below entryPrice for a SELL TP (forcing held)
+      state.priceHistory = [1.0, ...Array(8).fill(0.85)];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 0, originalTargetPrice: 1.0,
+        spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1,
+      }];
+      state.lastOrderMA = 1.0;
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.85);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2, quantity_curr: 20 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `h-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.heldRecoveryOrders).toHaveLength(1);
+      expect(state.heldRecoveryOrders[0].spikeLevel).toBe(1);
+    });
+  });
 });

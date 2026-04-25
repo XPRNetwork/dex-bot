@@ -616,7 +616,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // 7b. Re-place snapshotted TPs after rebalance
         if (rebalanced && rebalanceTPSnapshot.length > 0) {
           const tpOrders: TradeOrder[] = [];
-          const tpMeta: { entryPrice: number; spikeTrigger?: SpikeTrigger; adjustmentHistory?: AdjustmentHistoryEntry[]; quantityCurr: number }[] = [];
+          const tpMeta: { entryPrice: number; spikeTrigger?: SpikeTrigger; spikeLevel?: number; adjustmentHistory?: AdjustmentHistoryEntry[]; quantityCurr: number }[] = [];
 
           for (const { tracked, quantityCurr } of rebalanceTPSnapshot) {
             const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
@@ -665,6 +665,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             tpMeta.push({
               entryPrice: tracked.entryPrice!,
               spikeTrigger: tracked.spikeTrigger,
+              spikeLevel: tracked.spikeLevel,
               adjustmentHistory: tracked.adjustmentHistory,
               quantityCurr,
             });
@@ -684,6 +685,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               r.cyclesSincePlace = 0;
               r.originalTargetPrice = state.currentMA;
               r.spikeTrigger = meta.spikeTrigger;
+              r.spikeLevel = meta.spikeLevel;
               r.quantity = meta.quantityCurr;
               r.adjustmentHistory = [
                 ...(meta.adjustmentHistory ?? []),
