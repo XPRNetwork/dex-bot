@@ -214,6 +214,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
         // 4. Fill detection — spike orders, including partial fills
         if (state.spikeOrders.length > 0) {
+          // Quantity tick — uses bid_token precision because quantity is in the base asset.
           const tick = Math.pow(10, -market.bid_token.precision);
           const newOrders: TradeOrder[] = [];
           const newOrderMeta: Array<{ entryPrice: number; spikeLevel?: number; spikeTrigger?: SpikeTrigger }> = [];
@@ -284,7 +285,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               // Case B — sub-tick residual accumulates; do not update coveredQuantity.
               logger.info(`[SpikeBot] Sub-tick residual ${newlyUncovered} for ${symbol} spike — deferring`);
             }
-            // Case B — no new fill (or sub-tick residual handled inline above): fall through.
+            // Fall through — keep spike in remainingSpike.
 
             remainingSpike.push(tracked);
           }
