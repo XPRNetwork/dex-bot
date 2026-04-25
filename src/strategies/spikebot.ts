@@ -458,6 +458,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               newTracked.cyclesSincePlace = tracked.cyclesSincePlace;
               newTracked.originalTargetPrice = tracked.originalTargetPrice;
               newTracked.spikeTrigger = tracked.spikeTrigger;
+              newTracked.spikeLevel = tracked.spikeLevel;
               newTracked.adjustmentHistory = [
                 ...(tracked.adjustmentHistory ?? []),
                 { price: newTracked.price, at: new Date().toISOString(), reason: 'tier-bump' as const },
