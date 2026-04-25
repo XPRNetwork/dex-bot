@@ -1739,7 +1739,7 @@ describe('SpikeBotStrategy', () => {
       warmUpMA(strategy, 1.0, 10);
       const state = (strategy as any).pairStates[0];
       state.lastOrderMA = 1.0;
-      // Pre-existing level-2 spikes so state isn't empty (step 7 won't fire)
+      // Pre-existing level-2 spikes so state isn't empty (initial-placement branch is bypassed)
       state.spikeOrders = [
         { orderSide: 1, price: 0.8, quantity: 25, marketSymbol: 'XMT_XMD',
           orderId: 's-l2-buy', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 2, coveredQuantity: 0 },
@@ -1771,6 +1771,7 @@ describe('SpikeBotStrategy', () => {
       expect(replaced.price).toBeCloseTo(0.9, 6);           // 1.0 × (1 - 0.10)
       expect(replaced.spikeTrigger.price).toBe(1.0);
       expect(replaced.coveredQuantity).toBe(0);
+      expect(replaced.spikeLevel).toBe(1);
     });
 
     it('does not re-place when spikeTrigger.price differs from lastOrderMA (rebalance occurred)', async () => {

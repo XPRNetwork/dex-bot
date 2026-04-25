@@ -27,6 +27,12 @@ interface PairState {
   reconciledOnStartup?: boolean;
 }
 
+type FilledNonSpike = {
+  orderSide: ORDERSIDES;
+  spikeTrigger?: SpikeTrigger;
+  spikeLevel?: number;
+};
+
 /**
  * Spike Bot Strategy
  * Catches brief price spikes by pre-placing limit orders at extreme deviation levels from a moving average.
@@ -208,11 +214,6 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           lastCancelReason: state.lastCancelReason,
         });
 
-        type FilledNonSpike = {
-          orderSide: ORDERSIDES;
-          spikeTrigger?: SpikeTrigger;
-          spikeLevel?: number;
-        };
         const filledNonSpikes: FilledNonSpike[] = [];
 
         // Snapshot take-profit orders before step 4 so that newly placed TPs
@@ -704,7 +705,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // 7c. Spike re-placement — for each non-spike order that filled this cycle,
         // re-place the originating spike if no rebalance has happened since it was placed.
         for (const entry of filledNonSpikes) {
-          if (entry.spikeTrigger?.price === undefined || entry.spikeLevel === undefined) continue;
+          if (entry.spikeTrigger?.price === undefined || entry.spikeLevel === undefined) {
+            logger.info(`[SpikeBot] Skipping spike re-placement: filled non-spike has no spikeTrigger/spikeLevel — likely a pre-migration order`);
+            continue;
+          }
           if (entry.spikeTrigger.price !== state.lastOrderMA) continue;  // rebalance guard
 
           const originalSpikeSide = entry.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
