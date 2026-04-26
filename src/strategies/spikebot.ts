@@ -292,6 +292,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             } else if (newlyUncovered > 0) {
               // Case B — sub-tick residual accumulates; do not update coveredQuantity.
               logger.info(`[SpikeBot] Sub-tick residual ${newlyUncovered} for ${symbol} spike — deferring`);
+            } else if (newlyUncovered < 0) {
+              logger.warn(`[SpikeBot] Negative newlyUncovered ${newlyUncovered} for ${symbol} spike ${tracked.orderId} — likely stale on-chain data; skipping`);
             }
             // Fall through — keep spike in remainingSpike.
 
@@ -708,7 +710,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // 7c. Spike re-placement — for each non-spike order that filled this cycle,
         // re-place the originating spike if no rebalance has happened since it was placed.
         for (const entry of filledNonSpikes) {
-          if (entry.spikeTrigger?.price === undefined || entry.spikeLevel === undefined) {
+          if (entry.spikeTrigger?.price === undefined || !entry.spikeLevel) {
             logger.info(`[SpikeBot] Skipping spike re-placement: filled non-spike has no spikeTrigger/spikeLevel — likely a pre-migration order`);
             continue;
           }

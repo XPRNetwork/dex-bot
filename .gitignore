@@ -6,3 +6,5 @@ npm-debug.log
 .DS_Store
 ./config/custom-environment-variables.json
 package-lock.json
+.claude/settings.local.json
+undefined/
