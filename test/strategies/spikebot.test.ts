@@ -2104,4 +2104,66 @@ describe('SpikeBotStrategy', () => {
       expect(state.heldRecoveryOrders[0].spikeLevel).toBe(1);
     });
   });
+
+  describe('Full partial-fill → re-placement lifecycle', () => {
+    it('handles partial fill, full fill, and sequential TP resolutions correctly', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 10 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.lastOrderMA = 1.0;
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+
+      let resolveCounter = 0;
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o: any) => ({ ...o, orderId: `gen-${resolveCounter++}`, placedAt: 'x' }));
+
+      // Cycle 1: partial fill (3 of 10 filled) → TP₁ placed
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValueOnce([
+        { order_id: 's-1', price: 0.9, order_side: 1, quantity_curr: 7 },
+      ]);
+      await strategy.trade();
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(3, 4);
+      expect(state.takeProfitOrders).toHaveLength(1);
+      const tp1Id = state.takeProfitOrders[0].orderId;
+
+      // Cycle 2: spike fully fills (gone from open orders) → TP₂ placed for remaining 7
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValueOnce([
+        { order_id: tp1Id, price: 1.0, order_side: 2, quantity_curr: 3 },
+      ]);
+      await strategy.trade();
+      expect(state.spikeOrders).toHaveLength(0);
+      expect(state.takeProfitOrders).toHaveLength(2);
+
+      // Cycle 3: TP₁ fills → spike re-placed at level 1 BUY
+      const tp2Id = state.takeProfitOrders.find((t: TrackedOrder) => t.orderId !== tp1Id)!.orderId;
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValueOnce([
+        { order_id: tp2Id, price: 1.0, order_side: 2, quantity_curr: 7 },
+      ]);
+      await strategy.trade();
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(state.takeProfitOrders[0].orderId).toBe(tp2Id);
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.spikeOrders[0].spikeLevel).toBe(1);
+      expect(state.spikeOrders[0].orderSide).toBe(1);
+      const replacedSpikeId = state.spikeOrders[0].orderId;
+
+      // Cycle 4: TP₂ fills — slot already occupied by re-placed spike, so no second re-placement
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValueOnce([
+        { order_id: replacedSpikeId, price: 0.9, order_side: 1, quantity_curr: 10 },
+      ]);
+      await strategy.trade();
+      expect(state.takeProfitOrders).toHaveLength(0);
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.spikeOrders[0].orderId).toBe(replacedSpikeId);
+    });
+  });
 });
