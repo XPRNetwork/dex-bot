@@ -18,6 +18,7 @@ vi.mock('../../src/events', () => ({
     orderPlaced: vi.fn(), orderFilled: vi.fn(), orderCancelled: vi.fn(),
     orderHeld: vi.fn(),
     botError: vi.fn(), gridPlaced: vi.fn(), gridAdjusted: vi.fn(), initialize: vi.fn(),
+    balanceLow: vi.fn(),
   },
 }));
 
@@ -52,6 +53,9 @@ describe('SpikeBotStrategy', () => {
     (strategy as any).username = 'testuser';
     mockDexAPI.getMarketBySymbol.mockReturnValue(XMT_XMD_MARKET);
     mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+    // Default to a wallet flush enough that the balance preflight allows every
+    // placement. Individual tests that exercise the balance-low path override.
+    mockDexAPI.fetchTokenBalance.mockResolvedValue('1000000000');
   });
 
   function warmUpMA(strategy: SpikeBotStrategy, price: number, window: number) {
@@ -2164,6 +2168,117 @@ describe('SpikeBotStrategy', () => {
       expect(state.takeProfitOrders).toHaveLength(0);
       expect(state.spikeOrders).toHaveLength(1);
       expect(state.spikeOrders[0].orderId).toBe(replacedSpikeId);
+    });
+  });
+
+  describe('Balance preflight', () => {
+    it('skips TP placement when wallet has insufficient balance and emits balanceLow', async () => {
+      const { events } = await import('../../src/events');
+      const { prepareLimitOrder } = await import('../../src/dexrpc');
+      vi.mocked(events.balanceLow).mockClear();
+      vi.mocked(prepareLimitOrder).mockClear();
+
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      // BUY spike that just fully filled — bot will try to place a SELL TP at MA=1.0
+      // requiring 20 XMT (the bid_token) in the wallet.
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike fully resolved
+      // Wallet has 5 XMT — not enough for a 20 XMT SELL TP. XMD irrelevant for this side.
+      mockDexAPI.fetchTokenBalance.mockImplementation(async (_user: string, _contract: string, code: string) =>
+        code === 'XMT' ? '5' : '1000000');
+
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      // The bot detects the spike fill but the preflight rejects placement.
+      expect(state.takeProfitOrders).toHaveLength(0);
+      expect(prepareLimitOrder).not.toHaveBeenCalled();
+      expect(events.balanceLow).toHaveBeenCalledWith(
+        expect.stringContaining('tp-after-spike-fill'),
+        expect.objectContaining({
+          site: 'tp-after-spike-fill',
+          baseToken: 'XMT',
+          baseRequired: 20,
+          baseAvailable: 5,
+        }),
+      );
+      // The spike must remain tracked so the next cycle (with replenished wallet) retries.
+      expect(state.spikeOrders).toHaveLength(1);
+      expect(state.spikeOrders[0].orderId).toBe('s-1');
+    });
+
+    it('skips initial spike placement when wallet has insufficient balance', async () => {
+      const { events } = await import('../../src/events');
+      const { prepareLimitOrder } = await import('../../src/dexrpc');
+      vi.mocked(events.balanceLow).mockClear();
+      vi.mocked(prepareLimitOrder).mockClear();
+
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 2, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [];
+      state.takeProfitOrders = [];
+      // lastOrderMA stays at 1.0 from warmUpMA — no drift, this is the cold-start branch.
+      state.lastOrderMA = 0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+      // Plenty of XMD but only 10 XMT — placement needs 40 XMT total (2 SELLs × 20).
+      mockDexAPI.fetchTokenBalance.mockImplementation(async (_user: string, _contract: string, code: string) =>
+        code === 'XMT' ? '10' : '1000000');
+
+      await strategy.trade();
+
+      expect(prepareLimitOrder).not.toHaveBeenCalled();
+      expect(state.spikeOrders).toHaveLength(0);
+      // lastOrderMA must NOT advance: a successful placement updates it; a skipped one doesn't.
+      expect(state.lastOrderMA).toBe(0);
+      expect(events.balanceLow).toHaveBeenCalledWith(
+        expect.stringContaining('initial-spike-placement'),
+        expect.objectContaining({ site: 'initial-spike-placement' }),
+      );
+    });
+
+    it('proceeds with placement when wallet balance is sufficient (control)', async () => {
+      const { prepareLimitOrder } = await import('../../src/dexrpc');
+      vi.mocked(prepareLimitOrder).mockClear();
+
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+      // Default high balance from beforeEach is sufficient.
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(1);
+      expect(prepareLimitOrder).toHaveBeenCalled();
     });
   });
 });

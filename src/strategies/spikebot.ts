@@ -302,27 +302,32 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
           if (newOrders.length > 0) {
             this.offsetMixedSideCollisions(newOrders, market);
-            await this.placeOrders(newOrders);
-            // placeOrders succeeded — safe to advance coverage now
-            for (const u of pendingCoverageUpdates) {
-              u.tracked.coveredQuantity = u.newCoverage;
+            if (await this.assertSufficientBalances(newOrders, market, 'tp-after-spike-fill')) {
+              await this.placeOrders(newOrders);
+              // placeOrders succeeded — safe to advance coverage now
+              for (const u of pendingCoverageUpdates) {
+                u.tracked.coveredQuantity = u.newCoverage;
+              }
+              const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
+              const now = new Date().toISOString();
+              const placed = resolvedTP.map((r, i) => ({
+                ...r,
+                entryPrice: newOrderMeta[i].entryPrice,
+                cyclesSincePlace: 0,
+                originalTargetPrice: state.currentMA,
+                spikeTrigger: newOrderMeta[i].spikeTrigger,
+                spikeLevel: newOrderMeta[i].spikeLevel,
+                adjustmentHistory: [{ price: r.price, at: now, reason: 'placed' as const }],
+              }));
+              state.takeProfitOrders.push(...placed);
+              state.spikeOrders = remainingSpike;
+              // Immediate persist: close the crash window between on-chain TP placement
+              // and end-of-cycle persist so coveredQuantity can't be lost on a crash.
+              this.persistAllTrackedOrders();
             }
-            const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
-            const now = new Date().toISOString();
-            const placed = resolvedTP.map((r, i) => ({
-              ...r,
-              entryPrice: newOrderMeta[i].entryPrice,
-              cyclesSincePlace: 0,
-              originalTargetPrice: state.currentMA,
-              spikeTrigger: newOrderMeta[i].spikeTrigger,
-              spikeLevel: newOrderMeta[i].spikeLevel,
-              adjustmentHistory: [{ price: r.price, at: now, reason: 'placed' as const }],
-            }));
-            state.takeProfitOrders.push(...placed);
-            state.spikeOrders = remainingSpike;
-            // Immediate persist: close the crash window between on-chain TP placement
-            // and end-of-cycle persist so coveredQuantity can't be lost on a crash.
-            this.persistAllTrackedOrders();
+            // If preflight skipped placement: leave state.spikeOrders unchanged so the
+            // same Case A/Case C detections retry next cycle without dropping unmatched
+            // fully-resolved spikes from tracked state.
           } else {
             state.spikeOrders = remainingSpike;
           }
@@ -534,7 +539,19 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
             const reason = `MA drift ${driftPct.toFixed(2)}% exceeds threshold — rebalancing`;
-            logger.info(`[SpikeBot] ${symbol} ${reason}`);
+            // Snapshot per-side counts and current locked notional before tear-down so
+            // post-mortem inspection of an overdraw storm can reconstruct what
+            // funds the bot expected to recover from the cancel + withdraw cycle.
+            const buySpikeCount = state.spikeOrders.filter(o => o.orderSide === ORDERSIDES.BUY).length;
+            const sellSpikeCount = state.spikeOrders.filter(o => o.orderSide === ORDERSIDES.SELL).length;
+            const buyTpCount = state.takeProfitOrders.filter(o => o.orderSide === ORDERSIDES.BUY).length;
+            const sellTpCount = state.takeProfitOrders.filter(o => o.orderSide === ORDERSIDES.SELL).length;
+            logger.info(
+              `[SpikeBot] ${symbol} ${reason} ` +
+              `(MA ${state.lastOrderMA.toFixed(market.ask_token.precision)} → ${state.currentMA.toFixed(market.ask_token.precision)}; ` +
+              `spike: ${buySpikeCount} BUY / ${sellSpikeCount} SELL; ` +
+              `TP: ${buyTpCount} BUY / ${sellTpCount} SELL)`,
+            );
             this.setLastCancelReason(state, reason);
 
             // Snapshot TPs with their on-chain remaining quantities before cancelling
@@ -603,15 +620,19 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             const spikeOrders = spikeEntries.map(e => e.order);
             logger.info(`[SpikeBot] ${symbol} placing ${spikeOrders.length} spike orders around MA ${state.currentMA.toFixed(market.ask_token.precision)}`);
             const trigger = { price: state.currentMA, at: new Date().toISOString() };
-            await this.placeOrders(spikeOrders);
-            const resolved = await this.resolveOrderIds(spikeOrders, symbol);
-            state.spikeOrders = resolved.map((o, i) => ({
-              ...o,
-              spikeTrigger: { ...trigger },
-              spikeLevel: spikeEntries[i].level,
-              coveredQuantity: 0,
-            }));
-            state.lastOrderMA = state.currentMA;
+            if (await this.assertSufficientBalances(spikeOrders, market, 'initial-spike-placement')) {
+              await this.placeOrders(spikeOrders);
+              const resolved = await this.resolveOrderIds(spikeOrders, symbol);
+              state.spikeOrders = resolved.map((o, i) => ({
+                ...o,
+                spikeTrigger: { ...trigger },
+                spikeLevel: spikeEntries[i].level,
+                coveredQuantity: 0,
+              }));
+              state.lastOrderMA = state.currentMA;
+            }
+            // Preflight skipped: leave state.spikeOrders empty and lastOrderMA unchanged.
+            // Next cycle's step 7 will re-attempt placement once wallet recovers.
           }
         }
 
@@ -639,13 +660,18 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               const filledSide = tracked.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
               const heldTpOrder = this.buildTakeProfitOrder(symbol, tracked.price, filledSide, state.config.orderAmount, market);
               heldTpOrder.quantity = quantityCurr;
-              await this.placeOrders([heldTpOrder]);
-              const resolvedHeld = await this.resolveOrderIds([heldTpOrder], symbol);
-              if (resolvedHeld.length > 0) {
-                heldOrder.orderId = resolvedHeld[0].orderId;
-                heldOrder.price = resolvedHeld[0].price;
+              if (await this.assertSufficientBalances([heldTpOrder], market, 'held-tp-rebalance')) {
+                await this.placeOrders([heldTpOrder]);
+                const resolvedHeld = await this.resolveOrderIds([heldTpOrder], symbol);
+                if (resolvedHeld.length > 0) {
+                  heldOrder.orderId = resolvedHeld[0].orderId;
+                  heldOrder.price = resolvedHeld[0].price;
+                }
+                state.heldRecoveryOrders.push(heldOrder);
               }
-              state.heldRecoveryOrders.push(heldOrder);
+              // If preflight skipped: don't push to heldRecoveryOrders, since there's
+              // no live on-chain order to track. The cancel already happened in step 6,
+              // so funds were released; next cycle's step 7 will re-attempt fresh placement.
 
               logger.info(`[SpikeBot] Rebalance: ${sideStr} TP moved to held — MA ${state.currentMA.toFixed(market.ask_token.precision)} ${tracked.orderSide === ORDERSIDES.SELL ? 'below' : 'above'} entry ${tracked.entryPrice}`);
               events.orderHeld(`[SpikeBot] Rebalance: ${sideStr} TP moved to held — MA crosses entry`, {
@@ -677,33 +703,39 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
           if (tpOrders.length > 0) {
             this.offsetMixedSideCollisions(tpOrders, market);
-            await this.placeOrders(tpOrders);
-            const resolvedTP = await this.resolveOrderIds(tpOrders, symbol);
-            const now = new Date().toISOString();
-            for (let i = 0; i < resolvedTP.length; i++) {
-              const r = resolvedTP[i];
-              const meta = tpMeta[i];
-              r.entryPrice = meta.entryPrice;
-              r.cyclesSincePlace = 0;
-              r.originalTargetPrice = state.currentMA;
-              r.spikeTrigger = meta.spikeTrigger;
-              r.spikeLevel = meta.spikeLevel;
-              r.quantity = meta.quantityCurr;
-              r.adjustmentHistory = [
-                ...(meta.adjustmentHistory ?? []),
-                { price: r.price, at: now, reason: 'rebalance' as const },
-              ];
-              state.takeProfitOrders.push(r);
-            }
+            if (await this.assertSufficientBalances(tpOrders, market, 'tp-replace-after-rebalance')) {
+              await this.placeOrders(tpOrders);
+              const resolvedTP = await this.resolveOrderIds(tpOrders, symbol);
+              const now = new Date().toISOString();
+              for (let i = 0; i < resolvedTP.length; i++) {
+                const r = resolvedTP[i];
+                const meta = tpMeta[i];
+                r.entryPrice = meta.entryPrice;
+                r.cyclesSincePlace = 0;
+                r.originalTargetPrice = state.currentMA;
+                r.spikeTrigger = meta.spikeTrigger;
+                r.spikeLevel = meta.spikeLevel;
+                r.quantity = meta.quantityCurr;
+                r.adjustmentHistory = [
+                  ...(meta.adjustmentHistory ?? []),
+                  { price: r.price, at: now, reason: 'rebalance' as const },
+                ];
+                state.takeProfitOrders.push(r);
+              }
 
-            events.gridPlaced(`[SpikeBot] Re-placed ${resolvedTP.length} TP orders after rebalance`, {
-              orders: resolvedTP.map(o => ({
-                market: symbol,
-                side: o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL',
-                quantity: o.quantity,
-                price: o.price,
-              })),
-            });
+              events.gridPlaced(`[SpikeBot] Re-placed ${resolvedTP.length} TP orders after rebalance`, {
+                orders: resolvedTP.map(o => ({
+                  market: symbol,
+                  side: o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL',
+                  quantity: o.quantity,
+                  price: o.price,
+                })),
+              });
+            }
+            // Preflight skipped: cancel already happened in step 6 so the original TPs are
+            // gone from chain. The unmatched fills they hedged are in DEX escrow; the next
+            // cycle will detect missing tracked TPs as "filled" via step 5/7c — acceptable
+            // tradeoff vs. attempting a placement that would fail anyway.
           }
         }
 
@@ -732,6 +764,13 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             market,
           );
 
+          if (!(await this.assertSufficientBalances([spikeOrder], market, 'spike-replace-after-fill'))) {
+            // Preflight failed: skip this re-placement. The slot will remain unoccupied
+            // until the next non-spike fill triggers another attempt, or until a rebalance
+            // resets the grid. No on-chain side effects.
+            continue;
+          }
+
           await this.placeOrders([spikeOrder]);
           const resolved = await this.resolveOrderIds([spikeOrder], symbol);
           if (resolved.length > 0) {
@@ -757,8 +796,34 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         }
       } catch (error) {
         const errorMsg = (error as Error).message;
-        logger.error(`[SpikeBot] Error for ${state.config.symbol}: ${errorMsg}`);
-        events.botError(`SpikeBot error: ${errorMsg}`, { error: errorMsg });
+        // Include the per-pair state snapshot so the dashboard log can be
+        // correlated with the bot's tracked orders at the moment of failure —
+        // critical for diagnosing transient on-chain rejections like
+        // "overdrawn balance" where the trigger isn't visible from the message
+        // alone.
+        const ctx = {
+          symbol: state.config.symbol,
+          error: errorMsg,
+          currentMA: state.currentMA,
+          lastOrderMA: state.lastOrderMA,
+          spikeCount: state.spikeOrders.length,
+          tpCount: state.takeProfitOrders.length,
+          heldCount: state.heldRecoveryOrders.length,
+        };
+        logger.error(`[SpikeBot] Error for ${state.config.symbol}: ${errorMsg} ${JSON.stringify(ctx)}`);
+        events.botError(`SpikeBot error: ${errorMsg}`, ctx);
+        // If this is the on-chain assertion we've spent so much effort hunting,
+        // surface a hint pointing at the most common culprits so future
+        // operators (and our future selves) don't have to re-derive the
+        // explanation from logs.
+        if (errorMsg.includes('overdrawn balance')) {
+          logger.warn(
+            `[SpikeBot] overdrawn-balance hint: a transfer in submitOrders ` +
+            `outran the wallet. Check (1) per-token wallet balance vs. the ` +
+            `transfers in the failed bundle, and (2) whether dexrpc ` +
+            `submitOrders is queuing more actions than expected.`,
+          );
+        }
       }
     }
 
@@ -879,6 +944,73 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
   private setLastCancelReason(state: PairState, reason: string): void {
     state.lastCancelReason = { reason, at: new Date().toISOString() };
+  }
+
+  /**
+   * Preflight wallet-balance check before a placeOrders call.
+   *
+   * Sums per-token transfer demand across `orders` (SELL → bid_token, BUY →
+   * ask_token), fetches current wallet balances, and returns false if any
+   * token is short. On a short, emits balanceLow and logs the site so the
+   * dashboard surfaces *why* placement was skipped.
+   *
+   * Why this matters: spikebot's `placeOrders → submitOrders` bundles
+   * `transfer` actions before `withdrawall`, so the wallet must hold the full
+   * required amount at TX-execution time — escrow funds released earlier in
+   * the same bundle don't help. A momentary shortfall used to produce a
+   * silent "overdrawn balance" assertion that propagated up; this gates the
+   * placement explicitly so the next cycle can retry without dirty state.
+   */
+  private async assertSufficientBalances(
+    orders: TradeOrder[], market: Market, site: string,
+  ): Promise<boolean> {
+    if (this.mockEngine || orders.length === 0) return true;
+
+    let baseDemand = 0;
+    let quoteDemand = 0;
+    for (const o of orders) {
+      if (o.orderSide === ORDERSIDES.SELL) baseDemand += o.quantity;
+      else quoteDemand += o.quantity;
+    }
+
+    const fetchBal = async (contract: string, code: string): Promise<number> => {
+      const raw = await this.dexAPI.fetchTokenBalance(this.username, contract, code);
+      const n = parseFloat(String(raw));
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const baseBalance = baseDemand > 0
+      ? await fetchBal(market.bid_token.contract, market.bid_token.code)
+      : Infinity;
+    const quoteBalance = quoteDemand > 0
+      ? await fetchBal(market.ask_token.contract, market.ask_token.code)
+      : Infinity;
+
+    const baseShort = baseDemand > baseBalance;
+    const quoteShort = quoteDemand > quoteBalance;
+
+    if (baseShort || quoteShort) {
+      const msg = `[SpikeBot] Skipping ${site} on ${market.symbol} — insufficient wallet balance`;
+      const detail = {
+        market: market.symbol,
+        site,
+        orderCount: orders.length,
+        sides: orders.map(o => o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL'),
+        prices: orders.map(o => o.price),
+        baseToken: market.bid_token.code,
+        baseRequired: baseDemand,
+        baseAvailable: baseBalance,
+        baseShort: baseShort ? +(baseDemand - baseBalance).toFixed(market.bid_token.precision) : 0,
+        quoteToken: market.ask_token.code,
+        quoteRequired: quoteDemand,
+        quoteAvailable: quoteBalance,
+        quoteShort: quoteShort ? +(quoteDemand - quoteBalance).toFixed(market.ask_token.precision) : 0,
+      };
+      logger.warn(`${msg} ${JSON.stringify(detail)}`);
+      events.balanceLow(msg, detail);
+      return false;
+    }
+    return true;
   }
 
   private async cancelPairOrders(symbol: string, openOrders: { order_id: string | number }[]): Promise<void> {

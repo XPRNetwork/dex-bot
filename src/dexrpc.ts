@@ -173,9 +173,51 @@ export const submitOrders = async (): Promise<void> => {
       authorization,
     },);
 
-  const response = await apiTransact(actions);
+  // Capture-then-clear-then-send: the module-level `actions` queue must be
+  // emptied even if apiTransact throws. Otherwise a single failed bundle
+  // (network blip, overdrawn, duplicate-tx, anything) leaves the queue
+  // dirty, and every subsequent prepareLimitOrder appends to it — cumulative
+  // transfers grow until they exceed wallet, producing a persistent
+  // "overdrawn balance" loop with no fundamental balance problem.
+  const toSend = actions;
   actions = [];
+
+  // Log bundles that exceed the single-order shape (1 transfer + 1 placeorder
+  // + process + withdrawall = 4). A normal multi-order placeOrders sends up to
+  // 10 pairs (22 actions); anything larger or anything that grows
+  // cycle-over-cycle is a strong signal that submitOrders previously failed
+  // and leaked state. The breakdown surfaces *which* actions piled up.
+  const transferCount = toSend.filter(a => a.name === 'transfer').length;
+  const placeorderCount = toSend.filter(a => a.name === 'placeorder').length;
+  const processCount = toSend.filter(a => a.name === 'process').length;
+  const withdrawallCount = toSend.filter(a => a.name === 'withdrawall').length;
+
+  if (toSend.length > 4) {
+    logger.info(
+      `[dexrpc] submitOrders sending ${toSend.length} actions ` +
+      `(transfers=${transferCount}, placeorders=${placeorderCount}, ` +
+      `process=${processCount}, withdrawall=${withdrawallCount})`,
+    );
+  }
+
+  // More than one process or withdrawall in a single bundle should be
+  // impossible given the current design; if it ever shows up, that's a
+  // smoking-gun for the leaked-actions failure mode.
+  if (processCount > 1 || withdrawallCount > 1) {
+    logger.warn(
+      `[dexrpc] submitOrders bundle has duplicate epilogue actions ` +
+      `(process=${processCount}, withdrawall=${withdrawallCount}) — ` +
+      `suggests a prior submit leaked state`,
+    );
+  }
+
+  await apiTransact(toSend);
 }
+
+// Test-only: surface the queued-action count so tests can assert that a
+// failed submit doesn't leak state into the next call. Not exported in the
+// type-checked public API — kept on the module namespace at runtime only.
+export const __getQueuedActionCount = (): number => actions.length;
 
 export const submitProcessAction = async (): Promise<void> => {
   const processAction = [({
