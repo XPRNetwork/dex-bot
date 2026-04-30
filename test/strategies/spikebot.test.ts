@@ -1534,10 +1534,12 @@ describe('SpikeBotStrategy', () => {
       await strategy.trade();
 
       expect(state.spikeOrders).toHaveLength(1);
+      // coveredQuantity tracks the spike's NATIVE unit (XMD for BUY spike): 3 XMD filled.
       expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(3, 4);
       expect(state.takeProfitOrders).toHaveLength(1);
       const tp = state.takeProfitOrders[0];
-      expect(tp.quantity).toBeCloseTo(3, 4);
+      // SELL TP qty is in BASE (XMT). 3 XMD filled at 0.9 = 3/0.9 = 3.3333 XMT.
+      expect(tp.quantity).toBeCloseTo(3.3333, 4);
       expect(tp.orderSide).toBe(2);            // TP for BUY spike is SELL
       expect(tp.entryPrice).toBe(0.9);
       expect(tp.spikeLevel).toBe(1);
@@ -1566,9 +1568,11 @@ describe('SpikeBotStrategy', () => {
       await strategy.trade();
 
       expect(state.spikeOrders).toHaveLength(1);
+      // coveredQuantity is the cumulative XMD filled on this BUY spike: 6 XMD total.
       expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(6, 4);
       expect(state.takeProfitOrders).toHaveLength(1);
-      expect(state.takeProfitOrders[0].quantity).toBeCloseTo(3, 4);
+      // Newly uncovered = 3 XMD; SELL TP qty = 3/0.9 = 3.3333 XMT.
+      expect(state.takeProfitOrders[0].quantity).toBeCloseTo(3.3333, 4);
     });
 
     it('places no TP when quantity_curr is unchanged (no new fill)', async () => {
@@ -1617,7 +1621,8 @@ describe('SpikeBotStrategy', () => {
 
       expect(state.spikeOrders).toHaveLength(0);
       expect(state.takeProfitOrders).toHaveLength(1);
-      expect(state.takeProfitOrders[0].quantity).toBeCloseTo(4, 4);
+      // terminalQty = 10 - 6 = 4 XMD; SELL TP qty = 4/0.9 = 4.4444 XMT.
+      expect(state.takeProfitOrders[0].quantity).toBeCloseTo(4.4444, 4);
     });
 
     it('skips partial-fill TP when newlyUncovered is below one tick', async () => {
@@ -1677,7 +1682,8 @@ describe('SpikeBotStrategy', () => {
       await strategy.trade();
 
       expect(state.takeProfitOrders).toHaveLength(1);
-      expect(state.takeProfitOrders[0].quantity).toBeCloseTo(0.1, 4);
+      // Newly uncovered = 0.1 XMD; SELL TP qty = 0.1/0.9 = 0.1111 XMT.
+      expect(state.takeProfitOrders[0].quantity).toBeCloseTo(0.1111, 4);
       expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(3.1, 4);
     });
 
@@ -2171,6 +2177,103 @@ describe('SpikeBotStrategy', () => {
     });
   });
 
+  describe('TP quantity unit conversion', () => {
+    it('SELL spike fill places a BUY TP whose XMD quantity equals filled XMT × MA price', async () => {
+      // Symmetric to the BUY-spike → SELL-TP path. SELL spike's `quantity` is in
+      // BASE (XMT). After it fills we want to BUY back the same XMT amount at
+      // the new MA, so the BUY TP's `quantity` (in QUOTE/XMD) = XMT * MA.
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 10 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      // SELL spike at 1.1, qty 10 XMT. Spike fully resolved (Case A).
+      state.spikeOrders = [{
+        orderSide: 2, price: 1.1, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]); // spike fully filled
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(1);
+      const tp = state.takeProfitOrders[0];
+      expect(tp.orderSide).toBe(1);                  // BUY TP
+      // 10 XMT * 1.0 MA = 10 XMD. (Truncated to ask_token precision = 6.)
+      expect(tp.quantity).toBeCloseTo(10, 6);
+    });
+
+    it('SELL spike partial fill places a BUY TP scaled by newly uncovered XMT × MA', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 10 }],
+      });
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 2, price: 1.1, quantity: 10, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 1.0, at: 't0' }, spikeLevel: 1, coveredQuantity: 2,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      // quantity_curr = 5 → filledOnChain = 10 - 5 = 5 XMT total → newlyUncovered = 5 - 2 = 3 XMT.
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 1.1, order_side: 2, quantity_curr: 5 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.spikeOrders).toHaveLength(1);
+      // coveredQuantity is in XMT for SELL spikes; 5 XMT total filled.
+      expect(state.spikeOrders[0].coveredQuantity).toBeCloseTo(5, 4);
+      expect(state.takeProfitOrders).toHaveLength(1);
+      const tp = state.takeProfitOrders[0];
+      expect(tp.orderSide).toBe(1);                  // BUY TP
+      // newlyUncovered XMT (3) * MA (1.0) = 3 XMD.
+      expect(tp.quantity).toBeCloseTo(3, 6);
+    });
+
+    it('BUY spike full fill regression: SELL TP qty matches XMT received, not XMD spent', async () => {
+      // The 4/30 production scenario: BUY spike at 0.287802 fills for 234.648189 XMD,
+      // receiving 815.31118... XMT. The SELL TP must be sized in XMT, not XMD.
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 5.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 1000 }],
+      });
+      warmUpMA(strategy, 0.30075, 10);
+      const state = (strategy as any).pairStates[0];
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.287802, quantity: 287.802, marketSymbol: 'XMT_XMD',
+        orderId: 's-1', spikeTrigger: { price: 0.30075, at: 't0' }, spikeLevel: 1, coveredQuantity: 0,
+      }];
+      state.takeProfitOrders = [];
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.30075);
+      // Partial: 234.648189 XMD filled (matches the production log).
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 's-1', price: 0.287802, order_side: 1, quantity_curr: 53.153811 },
+      ]);
+      (strategy as any).resolveOrderIds = async (orders: any[]) =>
+        orders.map((o, i) => ({ ...o, orderId: `tp-${i}`, placedAt: 'x' }));
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders).toHaveLength(1);
+      const tp = state.takeProfitOrders[0];
+      expect(tp.orderSide).toBe(2);
+      // 234.648189 / 0.287802 = 815.31118... XMT (truncated to bid precision = 4 → 815.3111)
+      expect(tp.quantity).toBeCloseTo(815.3111, 4);
+      // Specifically: NOT the buggy XMD-passthrough value of 234.648189.
+      expect(tp.quantity).not.toBeCloseTo(234.648189, 1);
+    });
+  });
+
   describe('Balance preflight', () => {
     it('skips TP placement when wallet has insufficient balance and emits balanceLow', async () => {
       const { events } = await import('../../src/events');
@@ -2210,7 +2313,8 @@ describe('SpikeBotStrategy', () => {
         expect.objectContaining({
           site: 'tp-after-spike-fill',
           baseToken: 'XMT',
-          baseRequired: 20,
+          // BUY spike at price 0.9 with quantity 20 XMD → SELL TP needs 20/0.9 = 22.2222 XMT.
+          baseRequired: expect.closeTo(22.2222, 4),
           baseAvailable: 5,
         }),
       );

@@ -222,8 +222,6 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
         // 4. Fill detection — spike orders, including partial fills
         if (state.spikeOrders.length > 0) {
-          // Quantity tick — uses bid_token precision because quantity is in the base asset.
-          const tick = Math.pow(10, -market.bid_token.precision);
           const newOrders: TradeOrder[] = [];
           const newOrderMeta: Array<{ entryPrice: number; spikeLevel?: number; spikeTrigger?: SpikeTrigger }> = [];
           const remainingSpike: TrackedOrder[] = [];
@@ -234,12 +232,27 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               ? openOrders.find(o => o.order_id === tracked.orderId)
               : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
 
+            // The spike's `quantity`, `coveredQuantity`, and on-chain `quantity_curr` are
+            // all in the SPIKE's quantity unit: BASE (bid_token, e.g. XMT) for SELL
+            // spikes, QUOTE (ask_token, e.g. XMD) for BUY spikes. The TP placed against
+            // a fill is the OPPOSITE side, so its quantity must be in the OPPOSITE unit.
+            const spikePrecision = tracked.orderSide === ORDERSIDES.SELL
+              ? market.bid_token.precision
+              : market.ask_token.precision;
+            const tpPrecision = tracked.orderSide === ORDERSIDES.SELL
+              ? market.ask_token.precision
+              : market.bid_token.precision;
+            const tpTick = Math.pow(10, -tpPrecision);
+
             if (!stillOpen) {
               // Case A — spike fully resolved.
-              const terminalQty = +(tracked.quantity - (tracked.coveredQuantity ?? 0)).toFixed(market.bid_token.precision);
-              if (terminalQty >= tick) {
+              const terminalQty = +(tracked.quantity - (tracked.coveredQuantity ?? 0)).toFixed(spikePrecision);
+              const tpQty = this.tpQuantityFromFill(
+                tracked.orderSide, terminalQty, tracked.price, state.currentMA, market,
+              );
+              if (tpQty >= tpTick) {
                 const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
-                const fillMsg = `[SpikeBot] Filled ${sideStr} spike at ${tracked.price} for ${symbol} (terminal qty ${terminalQty})`;
+                const fillMsg = `[SpikeBot] Filled ${sideStr} spike at ${tracked.price} for ${symbol} (terminal qty ${terminalQty} ${this.unitLabel(tracked.orderSide, market)} → TP qty ${tpQty} ${this.unitLabel(this.tpSideOf(tracked.orderSide), market)})`;
                 logger.info(fillMsg);
                 events.orderFilled(fillMsg, {
                   market: symbol,
@@ -249,28 +262,33 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
                 });
 
                 const tpOrder = this.buildTakeProfitOrder(symbol, state.currentMA, tracked.orderSide, state.config.orderAmount, market);
-                tpOrder.quantity = terminalQty;
+                tpOrder.quantity = tpQty;
                 newOrders.push(tpOrder);
                 newOrderMeta.push({
                   entryPrice: tracked.price,
                   spikeLevel: tracked.spikeLevel,
                   spikeTrigger: tracked.spikeTrigger,
                 });
-              } else if (terminalQty > 0) {
-                logger.info(`[SpikeBot] Sub-tick terminal residual ${terminalQty} for ${symbol} spike — skipping TP placement`);
+              } else if (tpQty > 0) {
+                logger.info(`[SpikeBot] Sub-tick terminal TP qty ${tpQty} for ${symbol} spike — skipping TP placement`);
               }
               continue;
             }
 
             // Spike still on-chain. Check for partial fill via quantity_curr.
             const quantityCurr = stillOpen.quantity_curr ?? tracked.quantity;
-            const filledOnChain = +(tracked.quantity - quantityCurr).toFixed(market.bid_token.precision);
-            const newlyUncovered = +(filledOnChain - (tracked.coveredQuantity ?? 0)).toFixed(market.bid_token.precision);
+            const filledOnChain = +(tracked.quantity - quantityCurr).toFixed(spikePrecision);
+            const newlyUncovered = +(filledOnChain - (tracked.coveredQuantity ?? 0)).toFixed(spikePrecision);
+            const tpQty = newlyUncovered > 0
+              ? this.tpQuantityFromFill(tracked.orderSide, newlyUncovered, tracked.price, state.currentMA, market)
+              : 0;
 
-            if (newlyUncovered >= tick) {
-              // Case C — partial fill with new uncovered delta at or above tick threshold.
+            if (tpQty >= tpTick) {
+              // Case C — partial fill with new uncovered delta whose CONVERTED TP qty
+              // clears the TP-side tick. (We gate on the TP-side tick because that's the
+              // unit the chain will validate when we place the TP.)
               const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
-              logger.info(`[SpikeBot] Partial fill ${sideStr} spike at ${tracked.price} for ${symbol}: +${newlyUncovered} newly uncovered (total filled ${filledOnChain} of ${tracked.quantity})`);
+              logger.info(`[SpikeBot] Partial fill ${sideStr} spike at ${tracked.price} for ${symbol}: +${newlyUncovered} ${this.unitLabel(tracked.orderSide, market)} newly uncovered (total filled ${filledOnChain} of ${tracked.quantity}) → TP qty ${tpQty} ${this.unitLabel(this.tpSideOf(tracked.orderSide), market)}`);
               events.orderFilled(`[SpikeBot] Partial fill ${sideStr} spike +${newlyUncovered} at ${tracked.price}`, {
                 market: symbol,
                 side: sideStr,
@@ -280,7 +298,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               });
 
               const tpOrder = this.buildTakeProfitOrder(symbol, state.currentMA, tracked.orderSide, state.config.orderAmount, market);
-              tpOrder.quantity = newlyUncovered;
+              tpOrder.quantity = tpQty;
               newOrders.push(tpOrder);
               newOrderMeta.push({
                 entryPrice: tracked.price,
@@ -289,9 +307,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               });
 
               pendingCoverageUpdates.push({ tracked, newCoverage: filledOnChain });
-            } else if (newlyUncovered > 0) {
-              // Case B — sub-tick residual accumulates; do not update coveredQuantity.
-              logger.info(`[SpikeBot] Sub-tick residual ${newlyUncovered} for ${symbol} spike — deferring`);
+            } else if (tpQty > 0) {
+              // Case B — sub-tick TP qty after conversion; accumulate coverage rather than
+              // place. Do NOT update coveredQuantity — let the next cycle accumulate.
+              logger.info(`[SpikeBot] Sub-tick TP qty ${tpQty} ${this.unitLabel(this.tpSideOf(tracked.orderSide), market)} for ${symbol} spike — deferring (newlyUncovered ${newlyUncovered} ${this.unitLabel(tracked.orderSide, market)})`);
             } else if (newlyUncovered < 0) {
               logger.warn(`[SpikeBot] Negative newlyUncovered ${newlyUncovered} for ${symbol} spike ${tracked.orderId} — likely stale on-chain data; skipping`);
             }
@@ -944,6 +963,55 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
   private setLastCancelReason(state: PairState, reason: string): void {
     state.lastCancelReason = { reason, at: new Date().toISOString() };
+  }
+
+  /**
+   * Convert a spike-side fill amount into the corresponding TP-side order quantity.
+   *
+   * On Proton DEX a BUY order's `quantity` field is denominated in QUOTE
+   * (ask_token, e.g. XMD) — the amount of quote you're spending — while a SELL
+   * order's `quantity` is in BASE (bid_token, e.g. XMT) — the amount of base
+   * you're selling. Spike fills inherit the spike's side, so:
+   *
+   *   - A BUY spike that fills X XMD bought X / spikePrice XMT. The TP we place
+   *     is a SELL of those XMT, so SELL qty (XMT) = X / spikePrice.
+   *   - A SELL spike that fills Y XMT received Y * spikePrice XMD. The TP we
+   *     place is a BUY at the new MA, intending to buy back the SAME Y XMT we
+   *     sold, so BUY qty (XMD) = Y * tpPrice. (We use tpPrice — the MA where
+   *     the BUY rests — not spikePrice, because the BUY's quantity field is
+   *     "XMD to spend at the limit price" and we want to spend exactly enough
+   *     to acquire Y XMT at MA.)
+   *
+   * Without this conversion, the override `tpOrder.quantity = filledAmount`
+   * planted XMD-denominated values into SELL TPs (and vice-versa), causing the
+   * bot to sell only ~28.8% of what it bought during a 4/30 partial-fill
+   * incident — exact symptom: bought 815 XMT for 234 XMD, then sold only 234
+   * XMT for 68 XMD.
+   */
+  private tpQuantityFromFill(
+    spikeSide: ORDERSIDES, filledAmount: number, spikePrice: number, tpPrice: number, market: Market,
+  ): number {
+    if (filledAmount <= 0) return 0;
+    // Truncate (floor), don't round, when projecting to TP precision. A `toFixed`
+    // round-half-up would lift sub-tick remainders past the tick boundary
+    // (e.g. 0.0000556 → 0.0001 at 4 decimals), letting tick-gating leak. Floor
+    // matches the chain's "round-down to satisfy precision" semantics.
+    const precision = spikeSide === ORDERSIDES.BUY
+      ? market.bid_token.precision
+      : market.ask_token.precision;
+    const raw = spikeSide === ORDERSIDES.BUY
+      ? filledAmount / spikePrice
+      : filledAmount * tpPrice;
+    const scale = Math.pow(10, precision);
+    return Math.floor(raw * scale) / scale;
+  }
+
+  private tpSideOf(spikeSide: ORDERSIDES): ORDERSIDES {
+    return spikeSide === ORDERSIDES.BUY ? ORDERSIDES.SELL : ORDERSIDES.BUY;
+  }
+
+  private unitLabel(side: ORDERSIDES, market: Market): string {
+    return side === ORDERSIDES.SELL ? market.bid_token.code : market.ask_token.code;
   }
 
   /**
