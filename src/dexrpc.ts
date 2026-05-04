@@ -54,7 +54,7 @@ const transact = async (actions: OrderAction[]) => {
       attempts++;
       if (attempts >= maxRetries) {
         logger.error(`Failed after ${maxRetries} attempts`);
-        throw Error;
+        throw new Error(`DEX RPC transact failed after ${maxRetries} attempts`);
       }
       logger.info(`Retrying RPC connection`);
     }
@@ -162,7 +162,7 @@ export const submitProcessAction = async (): Promise<void> => {
     authorization,
   })];
 
-  const response = apiTransact(processAction);
+  await apiTransact(processAction);
 }
 
 const createCancelAction = (orderId: string | number): OrderAction => ({
