@@ -54,9 +54,7 @@ export const fetchMarkets = async (): Promise<Market[]> => {
  * Return an orderbook for the provided market. Use a higher step number for low priced currencies
  */
 export const fetchOrderBook = async (symbol: string, limit = 100, step = 100000): Promise<{ bids: Depth[], asks: Depth[] }> => {
-  console.info(`order book ${apiRoot} ${symbol} ${limit} ${step}`);
   const orderBook = await fetchFromAPI<{ bids: Depth[], asks: Depth[] }>(apiRoot, `/v1/orders/depth?symbol=${symbol}&limit=${limit}&step=${step}`);
-  console.info(`order book ${orderBook}`);
   return orderBook;
 };
 
