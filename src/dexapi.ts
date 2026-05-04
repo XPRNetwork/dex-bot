@@ -21,12 +21,10 @@ const fetchFromAPI = async <T>(root: string, path: string, returnData = true, ti
   catch {
     if (times > 0) {
       times--;
-      await fetchFromAPI(root, path, returnData, times);
-    } else {
-      throw new Error(" Not able to reach API server");
+      return await fetchFromAPI(root, path, returnData, times);
     }
+    throw new Error(" Not able to reach API server");
   }
-  return {} as T;
 };
 
 // export async const fetchFromAPI = async <T>(root: string, path: string, returnData = true, retries: number): Promise<T> => {
@@ -56,7 +54,9 @@ export const fetchMarkets = async (): Promise<Market[]> => {
  * Return an orderbook for the provided market. Use a higher step number for low priced currencies
  */
 export const fetchOrderBook = async (symbol: string, limit = 100, step = 100000): Promise<{ bids: Depth[], asks: Depth[] }> => {
+  console.info(`order book ${apiRoot} ${symbol} ${limit} ${step}`);
   const orderBook = await fetchFromAPI<{ bids: Depth[], asks: Depth[] }>(apiRoot, `/v1/orders/depth?symbol=${symbol}&limit=${limit}&step=${step}`);
+  console.info(`order book ${orderBook}`);
   return orderBook;
 };
 
@@ -96,6 +96,9 @@ export const fetchTrades = async (symbol: string, count = 100, offset = 0): Prom
  */
 export const fetchLatestPrice = async (symbol: string): Promise<number> => {
   const trades = await fetchTrades(symbol, 1);
+  if (!Array.isArray(trades) || trades.length === 0) {
+    throw new Error(`No recent trades for ${symbol}`);
+  }
   return trades[0].price;
 };
 
