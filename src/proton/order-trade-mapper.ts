@@ -12,6 +12,10 @@ import {
 
 const MIN_FILL_AMOUNT = 0.000001;
 const MAX_AMOUNT = 999_999_999_999;
+// PRICE_VALIDATION_TOLERANCE = 5.0 used with `* 100` below acts as a 500% cap —
+// effectively disabled. Upstream protonext-tax mapper does the same (intentional);
+// MetalX stores price in inconsistent conventions across markets, so the validation
+// is unreliable. Kept for parity. See order-mapping-mapper-v2.ts:61-68 in protonext-tax.
 const PRICE_VALIDATION_TOLERANCE = 5.0;
 const FEE_MATCH_TOLERANCE = 0.01;
 
@@ -70,6 +74,10 @@ export function mapOrderToTrade(order: OrderData, market: MarketInfo | null): Or
     };
   }
 
+  // NOTE: this `transfer && !hasActualFill` guard is unreachable because the
+  // `!hasActualFill` early-return above already handles it. Kept verbatim from
+  // the upstream protonext-tax mapper for parity. If upstream extracts the
+  // no-fill check differently in the future, this block becomes reachable.
   if (order.finalStatus === 'transfer' && !hasActualFill) {
     return {
       shouldCreate: false,
