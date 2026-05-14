@@ -1,0 +1,189 @@
+{
+  "fixtures": [
+    {
+      "name": "buy_filled",
+      "description": "Standard BUY: send 73.69541 XMD, receive 20053.5005 XPR net (fee 16.0556 XPR)",
+      "order": {
+        "orderId": "10001",
+        "orderSide": 1,
+        "orderType": 0,
+        "marketId": 1,
+        "accountName": "tester",
+        "price": 0.003673,
+        "quantityInit": 73.69541,
+        "quantityFilled": 73.69541,
+        "filledTotal": 20069.5561,
+        "filledAmount": 20053.5005,
+        "filledFee": 16.0556,
+        "finalStatus": "filled",
+        "isFullyFilled": true,
+        "orderCreatedAt": "2026-01-15T10:00:00.000Z",
+        "orderCompletedAt": "2026-01-15T10:00:05.000Z"
+      },
+      "market": {
+        "marketId": 1,
+        "symbol": "XPR_XMD",
+        "baseToken": "XPR",
+        "quoteToken": "XMD",
+        "makerFee": 0.001,
+        "takerFee": 0.002
+      },
+      "expected": {
+        "shouldCreate": true,
+        "buyAmount": 20053.5005,
+        "buyCurrency": "XPR",
+        "sellAmount": 73.69541,
+        "sellCurrency": "XMD",
+        "feeAmount": 16.0556,
+        "feeCurrency": "XPR"
+      }
+    },
+    {
+      "name": "sell_filled",
+      "description": "Standard SELL: send 6040.877 XPR, receive 22.297148 XMD net (fee 0.017852 XMD)",
+      "order": {
+        "orderId": "10002",
+        "orderSide": 2,
+        "orderType": 0,
+        "marketId": 1,
+        "accountName": "tester",
+        "price": 0.003693,
+        "quantityInit": 6040.877,
+        "quantityFilled": 6040.877,
+        "filledTotal": 22.315,
+        "filledAmount": 22.297148,
+        "filledFee": 0.017852,
+        "finalStatus": "filled",
+        "isFullyFilled": true,
+        "orderCreatedAt": "2026-01-15T11:00:00.000Z",
+        "orderCompletedAt": "2026-01-15T11:00:03.000Z"
+      },
+      "market": {
+        "marketId": 1,
+        "symbol": "XPR_XMD",
+        "baseToken": "XPR",
+        "quoteToken": "XMD",
+        "makerFee": 0.001,
+        "takerFee": 0.002
+      },
+      "expected": {
+        "shouldCreate": true,
+        "buyAmount": 22.297148,
+        "buyCurrency": "XMD",
+        "sellAmount": 6040.877,
+        "sellCurrency": "XPR",
+        "feeAmount": 0.017852,
+        "feeCurrency": "XMD"
+      }
+    },
+    {
+      "name": "buy_partial_fill",
+      "description": "Partial BUY: 30% filled",
+      "order": {
+        "orderId": "10003",
+        "orderSide": 1,
+        "orderType": 0,
+        "marketId": 1,
+        "accountName": "tester",
+        "price": 0.003673,
+        "quantityInit": 100,
+        "quantityFilled": 30,
+        "filledTotal": 8166,
+        "filledAmount": 8157.834,
+        "filledFee": 8.166,
+        "finalStatus": "filled",
+        "isFullyFilled": false,
+        "orderCreatedAt": "2026-01-15T12:00:00.000Z",
+        "orderCompletedAt": "2026-01-15T12:00:30.000Z"
+      },
+      "market": {
+        "marketId": 1,
+        "symbol": "XPR_XMD",
+        "baseToken": "XPR",
+        "quoteToken": "XMD",
+        "makerFee": 0.001,
+        "takerFee": 0.002
+      },
+      "expected": {
+        "shouldCreate": true,
+        "buyAmount": 8157.834,
+        "buyCurrency": "XPR",
+        "sellAmount": 30,
+        "sellCurrency": "XMD",
+        "feeAmount": 8.166,
+        "feeCurrency": "XPR"
+      }
+    },
+    {
+      "name": "canceled_no_fill",
+      "description": "Canceled order with no fills — must be skipped",
+      "order": {
+        "orderId": "10004",
+        "orderSide": 1,
+        "orderType": 0,
+        "marketId": 1,
+        "accountName": "tester",
+        "price": 0.003673,
+        "quantityInit": 100,
+        "quantityFilled": 0,
+        "filledTotal": 0,
+        "filledAmount": 0,
+        "filledFee": 0,
+        "finalStatus": "cancel",
+        "isFullyFilled": false,
+        "orderCreatedAt": "2026-01-15T13:00:00.000Z",
+        "orderCompletedAt": "2026-01-15T13:00:01.000Z"
+      },
+      "market": {
+        "marketId": 1,
+        "symbol": "XPR_XMD",
+        "baseToken": "XPR",
+        "quoteToken": "XMD",
+        "makerFee": 0.001,
+        "takerFee": 0.002
+      },
+      "expected": {
+        "shouldCreate": false,
+        "skipReason": "Order canceled/deleted with no fills"
+      }
+    },
+    {
+      "name": "canceled_with_partial_fill",
+      "description": "Canceled SELL with partial fill — must create transaction for the filled portion",
+      "order": {
+        "orderId": "10005",
+        "orderSide": 2,
+        "orderType": 0,
+        "marketId": 1,
+        "accountName": "tester",
+        "price": 0.003693,
+        "quantityInit": 1000,
+        "quantityFilled": 200,
+        "filledTotal": 0.7386,
+        "filledAmount": 0.737124,
+        "filledFee": 0.000476,
+        "finalStatus": "cancel",
+        "isFullyFilled": false,
+        "orderCreatedAt": "2026-01-15T14:00:00.000Z",
+        "orderCompletedAt": "2026-01-15T14:00:20.000Z"
+      },
+      "market": {
+        "marketId": 1,
+        "symbol": "XPR_XMD",
+        "baseToken": "XPR",
+        "quoteToken": "XMD",
+        "makerFee": 0.001,
+        "takerFee": 0.002
+      },
+      "expected": {
+        "shouldCreate": true,
+        "buyAmount": 0.737124,
+        "buyCurrency": "XMD",
+        "sellAmount": 200,
+        "sellCurrency": "XPR",
+        "feeAmount": 0.000476,
+        "feeCurrency": "XMD"
+      }
+    }
+  ]
+}
