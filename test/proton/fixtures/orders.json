@@ -184,6 +184,37 @@
         "feeAmount": 0.000476,
         "feeCurrency": "XMD"
       }
+    },
+    {
+      "name": "buy_filled_no_market",
+      "description": "BUY with no market info — should still create with UNKNOWN_BASE/UNKNOWN_QUOTE and needsReview",
+      "order": {
+        "orderId": "10006",
+        "orderSide": 1,
+        "orderType": 0,
+        "marketId": 999,
+        "accountName": "tester",
+        "price": 0.003673,
+        "quantityInit": 73.69541,
+        "quantityFilled": 73.69541,
+        "filledTotal": 20069.5561,
+        "filledAmount": 20053.5005,
+        "filledFee": 16.0556,
+        "finalStatus": "filled",
+        "isFullyFilled": true,
+        "orderCreatedAt": "2026-01-15T15:00:00.000Z",
+        "orderCompletedAt": "2026-01-15T15:00:05.000Z"
+      },
+      "market": null,
+      "expected": {
+        "shouldCreate": true,
+        "buyAmount": 20053.5005,
+        "buyCurrency": "UNKNOWN_BASE",
+        "sellAmount": 73.69541,
+        "sellCurrency": "UNKNOWN_QUOTE",
+        "feeAmount": 16.0556,
+        "feeCurrency": "UNKNOWN_BASE"
+      }
     }
   ]
 }

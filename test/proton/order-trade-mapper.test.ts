@@ -12,7 +12,7 @@ interface Fixture {
   name: string;
   description: string;
   order: OrderData;
-  market: MarketInfo;
+  market: MarketInfo | null;
   expected: {
     shouldCreate: boolean;
     skipReason?: string;
