@@ -282,7 +282,10 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                   makerFee: Number(market.maker_fee ?? 0),
                   takerFee: Number(market.taker_fee ?? 0),
                 },
-                { mode: this.mockEngine ? 'paper' : 'live' },
+                {
+                  mode: this.mockEngine ? 'paper' : 'live',
+                  txId: tracked.orderId ?? `${marketSymbol}-${tracked.price}-${tracked.orderSide}`,
+                },
               ).catch(err => logger.warn('[trades] emitFillAsTrade error:', err));
 
               if (this.oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
