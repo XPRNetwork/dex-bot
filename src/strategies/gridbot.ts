@@ -255,6 +255,36 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 price: this.oldOrders[i][j].price,
               });
 
+              // Emit both-legs trade to dashboard /api/trades
+              this.emitFillAsTrade(
+                {
+                  orderId: tracked.orderId ?? `${marketSymbol}-${tracked.price}-${tracked.orderSide}`,
+                  orderSide: tracked.orderSide,
+                  orderType: 0, // gridbot places limit orders
+                  marketId: market.market_id,
+                  accountName: this.username,
+                  price: tracked.price,
+                  quantityInit: tracked.quantity,
+                  quantityFilled: tracked.quantity,
+                  filledTotal: null,
+                  filledAmount: null,
+                  filledFee: null,
+                  finalStatus: 'filled',
+                  isFullyFilled: true,
+                  orderCreatedAt: tracked.placedAt ?? new Date().toISOString(),
+                  orderCompletedAt: new Date().toISOString(),
+                },
+                {
+                  marketId: market.market_id,
+                  symbol: marketSymbol,
+                  baseToken: market.bid_token?.code ?? '',
+                  quoteToken: market.ask_token?.code ?? '',
+                  makerFee: Number(market.maker_fee ?? 0),
+                  takerFee: Number(market.taker_fee ?? 0),
+                },
+                { mode: this.mockEngine ? 'paper' : 'live' },
+              ).catch(err => logger.warn('[trades] emitFillAsTrade error:', err));
+
               if (this.oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
                 const lowestAsk = this.getLowestAsk(currentOrders);
                 var sellPrice;
