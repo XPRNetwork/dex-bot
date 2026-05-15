@@ -6,6 +6,9 @@ import { getConfig, getLogger, getUsername } from "../utils";
 import { Market, OrderHistory } from '@proton/wrap-constants';
 import { ORDERSIDES } from '../core/constants';
 import { events } from "../events";
+import { mapOrderToTrade } from '../proton/order-trade-mapper';
+import type { OrderData, MarketInfo } from '../proton/types';
+import { tradesEmitter, type TradePayload } from '../trades';
 import fs from 'fs';
 import path from 'path';
 import { readPending, appendResult, BotCommand, BotCommandResult } from './command-queue';
@@ -329,6 +332,58 @@ export abstract class TradingStrategyBase implements TradingStrategy {
   async cancelOwnOrders(): Promise<void> {
     // Default implementation — subclasses can override with specific tracked orders
     baseLogger.info('[Tracking] cancelOwnOrders called (base no-op)');
+  }
+
+  public async emitFillAsTrade(
+    order: OrderData,
+    market: MarketInfo,
+    meta: { mode: 'live' | 'paper'; txId?: string; mockId?: string } = { mode: 'live' },
+  ): Promise<void> {
+    const result = mapOrderToTrade(order, market);
+    if (!result.shouldCreate || !result.transaction) {
+      baseLogger.info(`[trades] skipping order ${order.orderId}: ${result.skipReason ?? 'no transaction'}`);
+      return;
+    }
+    const t = result.transaction;
+    const payload: TradePayload = {
+      instanceId: process.env.DASHBOARD_INSTANCE_ID ?? '',
+      symbol: market.symbol,
+      side: order.orderSide === 1 ? 'BUY' : 'SELL',
+      price: order.price,
+      quantity: order.quantityFilled,
+      fee: t.feeAmount ?? 0,
+      mode: meta.mode,
+      mockId: meta.mockId,
+      venue: 'proton',
+      dex: 'XPR DEX',
+      txId: meta.txId,
+      timestamp: t.timestamp,
+      sentAmount: t.sellAmount,
+      sentCurrency: t.sellCurrency,
+      receivedAmount: t.buyAmount,
+      receivedCurrency: t.buyCurrency,
+      feeCurrency: t.feeCurrency ?? undefined,
+      data: {
+        raw: {
+          orderId: order.orderId,
+          orderSide: order.orderSide,
+          orderType: order.orderType,
+          price: order.price,
+          quantityInit: order.quantityInit,
+          quantityFilled: order.quantityFilled,
+          filledTotal: order.filledTotal,
+          filledAmount: order.filledAmount,
+          filledFee: order.filledFee,
+          finalStatus: order.finalStatus,
+        },
+        mapper: {
+          needsReview: t.needsReview,
+          reviewNote: t.reviewNote,
+          debug: result.debug,
+        },
+      },
+    };
+    await tradesEmitter.emit(payload);
   }
 
   protected async processCommands(): Promise<void> {

@@ -5,6 +5,7 @@ import { getStrategy } from './strategies';
 import readline from 'readline';
 import { postSlackMsg } from './slackapi';
 import { events } from './events';
+import { tradesEmitter } from './trades';
 import { healthMonitor } from './health-monitor';
 import type { MockEngine } from './mock-engine';
 
@@ -99,6 +100,7 @@ currentStrategy.initialize(config[config.strategy]);
 
 // Initialize dashboard events
 events.initialize();
+tradesEmitter.initialize();
 
 // Initialize health monitor
 healthMonitor.initialize();
