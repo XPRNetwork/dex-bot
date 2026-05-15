@@ -78,6 +78,10 @@ class TradesEmitter {
         if (res.ok) return true;
         lastErr = `HTTP ${res.status}: ${await res.text().catch(() => '<no body>')}`;
         logger.warn(`[trades] attempt ${attempt}/${maxRetries} failed: ${lastErr}`);
+        if (res.status >= 400 && res.status < 500) {
+          // Permanent client error — don't retry
+          break;
+        }
       } catch (err) {
         lastErr = err instanceof Error ? err.message : String(err);
         logger.warn(`[trades] attempt ${attempt}/${maxRetries} threw: ${lastErr}`);

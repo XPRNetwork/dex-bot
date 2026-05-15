@@ -90,4 +90,56 @@ describe('tradesEmitter', () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('does NOT retry on 4xx (permanent client errors)', async () => {
+    vi.doMock('../src/utils', async () => {
+      return {
+        getConfig: () => ({
+          dashboard: {
+            url: 'http://dashboard.test',
+            apiKey: 'k1',
+            instanceId: 'i1',
+            enabled: true,
+          },
+        }),
+        getLogger: () => ({ info: () => {}, warn: () => {}, error: () => {} }),
+      };
+    });
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ ok: false, status: 400, text: async () => 'bad payload' });
+    vi.resetModules();
+    const { tradesEmitter } = await import('../src/trades');
+    tradesEmitter.initialize();
+    await tradesEmitter.emit({
+      instanceId: 'i1', symbol: 'XPR_XMD', side: 'BUY',
+      price: 0.002, quantity: 1000, mode: 'live', venue: 'proton',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does retry on 5xx (transient server errors)', async () => {
+    vi.doMock('../src/utils', async () => {
+      return {
+        getConfig: () => ({
+          dashboard: {
+            url: 'http://dashboard.test',
+            apiKey: 'k1',
+            instanceId: 'i1',
+            enabled: true,
+          },
+        }),
+        getLogger: () => ({ info: () => {}, warn: () => {}, error: () => {} }),
+      };
+    });
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ ok: false, status: 503, text: async () => 'server unavailable' });
+    vi.resetModules();
+    const { tradesEmitter } = await import('../src/trades');
+    tradesEmitter.initialize();
+    await tradesEmitter.emit({
+      instanceId: 'i1', symbol: 'XPR_XMD', side: 'BUY',
+      price: 0.002, quantity: 1000, mode: 'live', venue: 'proton',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });
